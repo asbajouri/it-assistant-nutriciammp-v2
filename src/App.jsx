@@ -7,11 +7,17 @@ const API_URLS = [
 
 async function fetchWithFallback(path, options) {
   for (const base of API_URLS) {
-    try {
-      const res = await fetch(`${base}${path}`, options);
-      if (res.ok) return res;
-    } catch (e) {
-      continue;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) return res;
+      } catch (e) {
+        if (attempt === 1) break;
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
   }
   throw new Error("هر دو سرور در دسترس نیستند");
