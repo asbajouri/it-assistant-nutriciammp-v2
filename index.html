@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>دستیار IT شرکت</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        overflow: hidden;
+        overscroll-behavior: none;
+        overscroll-behavior-y: none;
+        touch-action: pan-x pan-y;
+        height: 100%;
+        width: 100%;
+        position: fixed;
+      }
+      #root {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Prevent pull-to-refresh on Android WebView
+      document.addEventListener('touchmove', function(e) {
+        if (e.target === document.body || e.target === document.documentElement) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      let startY = 0;
+      document.addEventListener('touchstart', function(e) {
+        startY = e.touches[0].clientY;
+      }, { passive: true });
+
+      document.addEventListener('touchmove', function(e) {
+        const scrollableEl = e.target.closest('[style*="overflow"]');
+        if (!scrollableEl) {
+          e.preventDefault();
+          return;
+        }
+        const deltaY = e.touches[0].clientY - startY;
+        const atTop = scrollableEl.scrollTop === 0;
+        const atBottom = scrollableEl.scrollHeight - scrollableEl.scrollTop === scrollableEl.clientHeight;
+        if ((atTop && deltaY > 0) || (atBottom && deltaY < 0)) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+    </script>
+  </body>
+</html>
