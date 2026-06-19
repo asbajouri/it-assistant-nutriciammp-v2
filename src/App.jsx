@@ -1,6 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 
-const BACKEND_URL = "https://it-assistant-api.onrender.com";
+const API_URLS = [
+  "https://asbajouri-it-assistant-api.hf.space",
+  "https://it-assistant-api.onrender.com",
+];
+
+async function fetchWithFallback(path, options) {
+  for (const base of API_URLS) {
+    try {
+      const res = await fetch(`${base}${path}`, options);
+      if (res.ok) return res;
+    } catch (e) {
+      continue;
+    }
+  }
+  throw new Error("هر دو سرور در دسترس نیستند");
+}
 const ADMIN_PASSWORD = "Sb@332211";
 const SUPABASE_URL = "https://lphczmltctrqmkxktdzo.supabase.co";
 const SUPABASE_KEY = "sb_publishable_4zAcw2YmjJkFnpgZI-ZzLQ_EXznYJs_";
@@ -399,7 +414,7 @@ export default function ITAssistant() {
     try {
       const systemPrompt = await buildSystemPrompt();
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
