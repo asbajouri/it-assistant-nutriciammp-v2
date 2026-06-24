@@ -430,7 +430,11 @@ export default function ITAssistant() {
   };
 
   const isITQuestion = (text) => {
-    const t = text.toLowerCase();
+    // normalize: ی عربی به ی فارسی، ک عربی به ک فارسی
+    const t = text.toLowerCase()
+      .replace(/ي/g, "ی")  // ي → ی
+      .replace(/ك/g, "ک")  // ك → ک
+      .replace(/ى/g, "ی"); // ى → ی
     const itKeywords = [
       // نرم‌افزارهای آفیس
       "excel","اکسل","کسل","اکسیل","xls","xlsx","vlookup","pivot","پیوت","فرمول",
@@ -449,7 +453,7 @@ export default function ITAssistant() {
       "printer","پرینتر","پرینت","laptop","لپتاپ","computer","کامپیوتر","monitor","مانیتور",
       "keyboard","کیبورد","mouse","ماوس","ram","cpu","hard","هارد","usb","driver","درایور",
       // برنامه‌نویسی و دیتابیس (جزو IT هست)
-      "python","پایتون","sql","mysql","sqlserver","اس کیو ال","database","دیتابیس","پایگاه داده",
+      "python","پایتون","پايتون","sql","sql server","sqlserver","mysql","اس کیو ال","اس کيو ال","database","دیتابیس","دیتا بیس","پایگاه داده","پايگاه داده",
       "javascript","java","php","api","html","css","programming","برنامه نویسی","کدنویسی",
       "server","سرور","hosting","هاستینگ","linux","لینوکس","powershell","cmd","command",
       // تیکت و پشتیبانی
@@ -460,7 +464,13 @@ export default function ITAssistant() {
       "backup","بکاپ","restore","ریستور","format","فرمت","reboot","ریستارت","restart",
       "bluetooth","بلوتوث","hotspot","هات اسپات","email","ایمیل",
     ];
-    return itKeywords.some(kw => t.includes(kw));
+    return itKeywords.some(kw => {
+      // برای کلمات کوتاه مثل "it" چک کن کلمه کامل باشه
+      if (kw.length <= 3 && /^[a-z]+$/.test(kw)) {
+        return new RegExp("\\b" + kw + "\\b").test(t);
+      }
+      return t.includes(kw);
+    });
   };
 
   const findExactQA = (userText, qaList) => {
