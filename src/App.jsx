@@ -395,10 +395,28 @@ export default function ITAssistant() {
   const buildSystemPrompt = async () => {
     try {
       const customQA = await sbFetch("custom_qa?order=id");
-      if (customQA.length === 0) return BASE_KNOWLEDGE;
+      if (customQA.length === 0) return { prompt: BASE_KNOWLEDGE, qaList: [] };
       const customSection = customQA.map(item => `سوال: ${item.question}\nجواب: ${item.answer}`).join("\n\n");
-      return `${BASE_KNOWLEDGE}\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n${customSection}`;
-    } catch { return BASE_KNOWLEDGE; }
+      return {
+        prompt: `${BASE_KNOWLEDGE}\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n${customSection}`,
+        qaList: customQA
+      };
+    } catch { return { prompt: BASE_KNOWLEDGE, qaList: [] }; }
+  };
+
+  const findExactQA = (userText, qaList) => {
+    if (!qaList || qaList.length === 0) return null;
+    const normalize = (s) => s.trim().replace(/[\s،,؟?!.]+/g, " ").toLowerCase();
+    const userNorm = normalize(userText);
+    // exact match
+    const exact = qaList.find(item => normalize(item.question) === userNorm);
+    if (exact) return exact.answer;
+    // contains match (سوال کاربر شامل سوال اختصاصی باشه یا برعکس)
+    const partial = qaList.find(item => {
+      const qNorm = normalize(item.question);
+      return userNorm.includes(qNorm) || qNorm.includes(userNorm);
+    });
+    return partial ? partial.answer : null;
   };
 
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
@@ -412,7 +430,17 @@ export default function ITAssistant() {
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
     try {
-      const systemPrompt = await buildSystemPrompt();
+      const { prompt: systemPrompt, qaList } = await buildSystemPrompt();
+
+      // اول چک کن سوال اختصاصی داره یا نه
+      const exactAnswer = findExactQA(userText, qaList);
+      if (exactAnswer) {
+        setMessages([...newMessages, { role: "assistant", content: exactAnswer }]);
+        if (userId) saveMessage(userId, "assistant", exactAnswer);
+        setLoading(false);
+        return;
+      }
+
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
       const res = await fetchWithFallback("/chat", {
         method: "POST",
