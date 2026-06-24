@@ -429,50 +429,6 @@ export default function ITAssistant() {
     } catch { return { prompt: BASE_KNOWLEDGE, qaList: [] }; }
   };
 
-  const isITQuestion = (text) => {
-    // normalize: ی عربی به ی فارسی، ک عربی به ک فارسی
-    const t = text.toLowerCase()
-      .replace(/ي/g, "ی")  // ي → ی
-      .replace(/ك/g, "ک")  // ك → ک
-      .replace(/ى/g, "ی"); // ى → ی
-    const itKeywords = [
-      // نرم‌افزارهای آفیس
-      "excel","اکسل","کسل","اکسیل","xls","xlsx","vlookup","pivot","پیوت","فرمول",
-      "word","ورد","powerpoint","پاورپوینت","outlook","اوتلوک","اوت لوک","teams","تیمز",
-      "office","آفیس","onenote","sharepoint","onedrive",
-      // سیستم عامل
-      "windows","ویندوز","ویندو","وینوز","win10","win11",
-      // شبکه و اینترنت
-      "network","شبکه","internet","اینترنت","vpn","وی پی ان","wifi","وایفای","ip","dns",
-      "ping","firewall","فایروال","proxy","پروکسی","bandwidth","پهنای باند",
-      // امنیت و دسترسی
-      "password","پسورد","پسوورد","رمز عبور","رمز","login","لاگین","account","اکانت",
-      "domain","دامین","دامنه","active directory","kms","license","لایسنس","اکتیو",
-      "activate","authentication","vpn","remote","ریموت",
-      // سخت‌افزار
-      "printer","پرینتر","پرینت","laptop","لپتاپ","computer","کامپیوتر","monitor","مانیتور",
-      "keyboard","کیبورد","mouse","ماوس","ram","cpu","hard","هارد","usb","driver","درایور",
-      // برنامه‌نویسی و دیتابیس (جزو IT هست)
-      "python","پایتون","پايتون","sql","sql server","sqlserver","mysql","اس کیو ال","اس کيو ال","database","دیتابیس","دیتا بیس","پایگاه داده","پايگاه داده",
-      "javascript","java","php","api","html","css","programming","برنامه نویسی","کدنویسی",
-      "server","سرور","hosting","هاستینگ","linux","لینوکس","powershell","cmd","command",
-      // تیکت و پشتیبانی
-      "ticket","تیکت","servicenow","درخواست it","it support","پشتیبانی",
-      "install","نصب","uninstall","حذف","update","آپدیت","error","خطا","مشکل کامپیوتر",
-      // کلمات عمومی IT
-      "software","نرم افزار","hardware","سخت افزار","it","app","application","برنامه",
-      "backup","بکاپ","restore","ریستور","format","فرمت","reboot","ریستارت","restart",
-      "bluetooth","بلوتوث","hotspot","هات اسپات","email","ایمیل",
-    ];
-    return itKeywords.some(kw => {
-      // برای کلمات کوتاه مثل "it" چک کن کلمه کامل باشه
-      if (kw.length <= 3 && /^[a-z]+$/.test(kw)) {
-        return new RegExp("\\b" + kw + "\\b").test(t);
-      }
-      return t.includes(kw);
-    });
-  };
-
   const findExactQA = (userText, qaList) => {
     if (!qaList || qaList.length === 0) return null;
     const normalize = (s) => s.trim().replace(/[\s،,؟?!.]+/g, " ").toLowerCase();
@@ -506,15 +462,6 @@ export default function ITAssistant() {
       if (exactAnswer) {
         setMessages([...newMessages, { role: "assistant", content: exactAnswer }]);
         if (userId) saveMessage(userId, "assistant", exactAnswer);
-        setLoading(false);
-        return;
-      }
-
-      // چک کن سوال IT هست یا نه - بدون AI
-      if (!isITQuestion(userText)) {
-        const notITMsg = "این سوال خارج از حوزه تخصصی من است. من فقط در زمینه IT و فناوری اطلاعات شرکت Nutricia-MMP پشتیبانی می‌کنم.";
-        setMessages([...newMessages, { role: "assistant", content: notITMsg }]);
-        if (userId) saveMessage(userId, "assistant", notITMsg);
         setLoading(false);
         return;
       }
