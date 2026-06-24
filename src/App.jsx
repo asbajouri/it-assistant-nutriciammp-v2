@@ -322,7 +322,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
+  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
 
   const loadMessages = () => {
     try {
@@ -439,7 +439,7 @@ export default function ITAssistant() {
       <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
         <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖥️</div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار IT شرکت Nutricia-MMP</div>
+          <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی IT شرکت Nutricia-MMP</div>
           <div style={{ fontSize: 12, opacity: 0.85 }}>پشتیبانی هوشمند فناوری اطلاعات • آنلاین</div>
         </div>
         <button onClick={() => setShowAdminLogin(true)} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🔐 Login</button>
