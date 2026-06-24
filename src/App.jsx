@@ -392,6 +392,11 @@ export default function ITAssistant() {
     } catch {}
   };
 
+  const sendButtonMessage = async (question) => {
+    await loadButtons();
+    sendMessage(question);
+  };
+
   const buildSystemPrompt = async () => {
     try {
       const customQA = await sbFetch("custom_qa?order=id");
@@ -482,7 +487,7 @@ export default function ITAssistant() {
 
       <div style={{ padding: "10px 16px", background: "#fff", borderBottom: "1px solid #e0e0e0", display: "flex", gap: 8, flexWrap: "wrap" }}>
         {buttons.map((q) => (
-          <button key={q.id} onClick={() => sendMessage(q.question)} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" }}
+          <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" }}
             onMouseEnter={e => { e.target.style.background = "#0078d4"; e.target.style.color = "white"; }}
             onMouseLeave={e => { e.target.style.background = "white"; e.target.style.color = "#0078d4"; }}
           >{q.label}</button>
