@@ -492,7 +492,7 @@ Question: "${userText}"` }],
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxHeight: "-webkit-fill-available", background: "#f0f2f5", fontFamily: "'Segoe UI', Tahoma, sans-serif", direction: "rtl", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", maxHeight: "-webkit-fill-available", background: "#f0f2f5", fontFamily: "'Segoe UI', Tahoma, sans-serif", direction: "rtl", overflow: "hidden", position: "fixed", inset: 0 }}>
       <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
         <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖥️</div>
         <div>
@@ -518,7 +518,7 @@ Question: "${userText}"` }],
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch", touchAction: "pan-y", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: "scroll", overflowX: "hidden", WebkitOverflowScrolling: "touch", touchAction: "pan-y", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12, minHeight: 0, overscrollBehavior: "none" }}>
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-start" : "flex-end", alignItems: "flex-end", gap: 8 }}>
             {msg.role === "assistant" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>}
@@ -563,11 +563,12 @@ Question: "${userText}"` }],
 
       <style>{`
         * { box-sizing: border-box; }
-        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        html { height: 100%; height: -webkit-fill-available; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; }
+        body { height: 100%; height: -webkit-fill-available; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; position: fixed; width: 100%; }
         @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        ::-webkit-scrollbar-thumb { background: transparent; }
+        * { -webkit-tap-highlight-color: transparent; }
       `}</style>
     </div>
   );
