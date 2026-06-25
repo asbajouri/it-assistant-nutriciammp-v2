@@ -446,6 +446,30 @@ export default function ITAssistant() {
         return;
       }
 
+      // چک کن سوال IT هست یا نه - با یه درخواست ساده YES/NO به AI
+      try {
+        const checkRes = await fetchWithFallback("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: `Is this question related to IT, computers, software, network, programming, or technology? Answer only YES or NO.
+Question: "${userText}"` }],
+            system_prompt: "You are a classifier. Answer only YES or NO. Nothing else."
+          }),
+        });
+        const checkData = await checkRes.json();
+        const answer = (checkData.reply || "").trim().toUpperCase();
+        if (answer.startsWith("NO")) {
+          const notITMsg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT پشتیبانی می‌کنم.";
+          setMessages([...newMessages, { role: "assistant", content: notITMsg }]);
+          if (userId) saveMessage(userId, "assistant", notITMsg);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        // اگه چک fail شد، ادامه بده و جواب بده
+      }
+
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
       const res = await fetchWithFallback("/chat", {
         method: "POST",
