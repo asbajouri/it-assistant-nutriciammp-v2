@@ -37,7 +37,7 @@ const sbFetch = async (path, options = {}) => {
   return text ? JSON.parse(text) : [];
 };
 
-const BASE_KNOWLEDGE = `تو یک دستیار هوش مصنوعی متخصص IT هستی که برای پشتیبانی کارکنان شرکت Nutricia-MMP طراحی شده‌ای.
+const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستی که برای پشتیبانی کارکنان طراحی شده‌ای. به تمام سوالات مرتبط با IT، نرم‌افزار، سخت‌افزار، شبکه، برنامه‌نویسی و فناوری جواب بده — حتی اگه نرم‌افزار خاص شرکت نباشه.
 
 قانون مهم: به زبان سوال جواب بده. اگه فارسی پرسیدن فارسی، اگه انگلیسی پرسیدن انگلیسی جواب بده. اگر سوال فارسی بود فارسی جواب بده، اگر انگلیسی بود انگلیسی جواب بده. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی، ویتنامی یا هر زبان دیگری استفاده نکن. کلمات انگلیسی تخصصی را فقط با حروف استاندارد انگلیسی (a-z, A-Z) بنویس. از هیچ حرف لاتین با علامت‌گذاری (مثل ã، ề، ā) استفاده نکن.
 
@@ -322,7 +322,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
+  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
 
   const loadMessages = () => {
     try {
@@ -455,7 +455,7 @@ export default function ITAssistant() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: [{ role: "user", content: `You are a message classifier. Given the conversation context, classify the LAST message.\n\nIMPORTANT: If the last message is a follow-up or continuation of a previous IT conversation (e.g. "translate that", "say it in Farsi", "explain more", "همینو فارسی بگو"), classify it as IT.\n\nConversation:\n${recentContext}\n\nLast message: "${userText}"\n\nCategories:\n- IT: about computers, software, hardware, network, office, excel, windows, domain, programming, technology, OR a follow-up to an IT conversation, OR questions about the assistant itself (who made you, what are you, tell me about yourself, تو کی هستی, تورو کی نوشته, از خودت بگو, کارت چیه)\n- GREETING: greetings, thanks, farewell, small talk (ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok, thanks, bye)\n- OTHER: completely unrelated to IT (medical, cooking, sports, politics)\n\nAnswer with ONE word: IT or GREETING or OTHER` }],
+            messages: [{ role: "user", content: `You are a message classifier. Given the conversation context, classify the LAST message.\n\nIMPORTANT: If the last message is a follow-up or continuation of a previous IT conversation (e.g. "translate that", "say it in Farsi", "explain more", "همینو فارسی بگو"), classify it as IT.\n\nConversation:\n${recentContext}\n\nLast message: "${userText}"\n\nCategories:\n- IT: about computers, software, hardware, network, office, excel, windows, domain, technology, OR programming languages (python, پایتون, java, javascript, sql, php, c++, r, matlab, bash, powershell), OR databases, servers, APIs, OR follow-up to IT conversation, OR questions about the assistant itself (who made you, what are you, تو کی هستی, از خودت بگو). When in doubt, classify as IT.\n- GREETING: greetings, thanks, farewell, small talk (ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok, thanks, bye)\n- OTHER: ONLY if completely unrelated to IT like medical advice, cooking, sports, politics. If there is ANY doubt, classify as IT.\n\nAnswer with ONE word: IT or GREETING or OTHER` }],
             system_prompt: "Classifier. Reply with exactly one word: IT or GREETING or OTHER. Nothing else."
           }),
         });
@@ -469,7 +469,7 @@ export default function ITAssistant() {
           return;
         }
         if (cls === "OTHER") {
-          const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT پشتیبانی می‌کنم.";
+          const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
           setMessages([...newMessages, { role: "assistant", content: msg }]);
           if (userId) saveMessage(userId, "assistant", msg);
           setLoading(false);
@@ -504,7 +504,7 @@ export default function ITAssistant() {
       <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
         <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖥️</div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی IT شرکت Nutricia-MMP</div>
+          <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP</div>
           <div style={{ fontSize: 12, opacity: 0.85 }}>پشتیبانی هوشمند فناوری اطلاعات • آنلاین</div>
         </div>
         <button onClick={() => setShowAdminLogin(true)} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🔐 Login</button>
