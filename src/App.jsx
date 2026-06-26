@@ -446,41 +446,37 @@ export default function ITAssistant() {
         return;
       }
 
-      // کلمات احوال‌پرسی و تشکر - مستقیم جواب بده بدون چک
-      const courtesyPhrases = ["ممنون","ممنونم","متشکرم","خوبی","خوب","سلام","مرسی","باشه","اوکی","ok","thanks","thank you","نه ممنون","خداحافظ","bye","چطوری","چطورید","آفرین","عالی","مفید بود"];
-      const lowerText = userText.trim().toLowerCase();
-      if (courtesyPhrases.some(p => lowerText === p || lowerText === p + "!" || lowerText === p + ".")) {
-        const courtesyMsg = "خواهش می‌کنم! 😊 اگه سوال IT دیگه‌ای داشتید در خدمتم.";
-        setMessages([...newMessages, { role: "assistant", content: courtesyMsg }]);
-        if (userId) saveMessage(userId, "assistant", courtesyMsg);
-        setLoading(false);
-        return;
-      }
-
-      // چک کن سوال IT هست یا نه - با یه درخواست ساده YES/NO به AI
+      // چک کن سوال IT هست، احوال‌پرسی هست، یا خارج از حوزه‌ست - همه رو به AI بسپار
       try {
-        // آخرین ۳ پیام رو برای context بفرست
         const recentContext = newMessages.slice(-4, -1).map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
         const contextPrompt = recentContext
-          ? `Conversation so far:\n${recentContext}\n\nNew question: "${userText}"`
-          : `Question: "${userText}"`;
+          ? `Conversation so far:\n${recentContext}\n\nNew message: "${userText}"`
+          : `Message: "${userText}"`;
         const checkRes = await fetchWithFallback("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: [{ role: "user", content: `Is this question (considering the conversation context) related to IT, computers, software, network, programming, or technology? Answer only YES or NO.\n${contextPrompt}` }],
-            system_prompt: "You are a classifier. Answer only YES or NO. Nothing else."
+            messages: [{ role: "user", content: `Classify this message into one of these categories:\n- IT: related to IT, computers, software, network, programming, technology\n- GREETING: greeting, thanks, farewell, small talk, acknowledgment (like "ok", "thanks", "bye", "how are you", "ممنون", "سلام", "خداحافظ", "باشه", "نه ممنون", "خوبم")\n- OTHER: anything else not IT-related\n\nAnswer with only one word: IT, GREETING, or OTHER.\n\n${contextPrompt}` }],
+            system_prompt: "You are a classifier. Answer with only one word: IT, GREETING, or OTHER. Nothing else."
           }),
         });
         const checkData = await checkRes.json();
         const answer = (checkData.reply || "").trim().toUpperCase();
-        if (answer.startsWith("NO")) {
+        if (answer.includes("GREETING")) {
+          const greetingMsg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
+          setMessages([...newMessages, { role: "assistant", content: greetingMsg }]);
+          if (userId) saveMessage(userId, "assistant", greetingMsg);
+          setLoading(false);
+          return;
+        }
+        if (answer.includes("OTHER")) {
           const notITMsg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT پشتیبانی می‌کنم.";
           setMessages([...newMessages, { role: "assistant", content: notITMsg }]);
           if (userId) saveMessage(userId, "assistant", notITMsg);
           setLoading(false);
           return;
         }
+        // IT یا هر چیز دیگه → ادامه بده و جواب بده
       } catch (e) {
         // اگه چک fail شد، ادامه بده و جواب بده
       }
