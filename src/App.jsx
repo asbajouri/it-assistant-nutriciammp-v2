@@ -39,7 +39,12 @@ const sbFetch = async (path, options = {}) => {
 
 const BASE_KNOWLEDGE = `تو یک دستیار هوش مصنوعی متخصص IT هستی که برای پشتیبانی کارکنان شرکت Nutricia-MMP طراحی شده‌ای.
 
-قانون مهم: به زبان سوال جواب بده. اگر سوال فارسی بود فارسی جواب بده، اگر انگلیسی بود انگلیسی جواب بده. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی، ویتنامی یا هر زبان دیگری استفاده نکن. کلمات انگلیسی تخصصی را فقط با حروف استاندارد انگلیسی (a-z, A-Z) بنویس. از هیچ حرف لاتین با علامت‌گذاری (مثل ã، ề، ā) استفاده نکن.
+قانون ۱ - تشخیص نوع پیام:
+- اگه احوال‌پرسی، تشکر، خداحافظی یا smalltalk بود (مثل سلام، ممنون، خوبم، باشه، bye): فقط بگو «خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.»
+- اگه سوال کاملاً غیر IT بود (پزشکی، آشپزی، ورزش، سیاست): بگو «این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT پشتیبانی می‌کنم.»
+- اگه سوال IT یا مرتبط با فناوری بود: جواب کامل و مفید بده.
+
+قانون ۲: به زبان سوال جواب بده. اگر سوال فارسی بود فارسی جواب بده، اگر انگلیسی بود انگلیسی جواب بده. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی، ویتنامی یا هر زبان دیگری استفاده نکن. کلمات انگلیسی تخصصی را فقط با حروف استاندارد انگلیسی (a-z, A-Z) بنویس. از هیچ حرف لاتین با علامت‌گذاری (مثل ã، ề، ā) استفاده نکن.
 
 دامین شرکت danonemulti.net است. تمام کاربران عضو این دامین هستند.
 جواب‌هایت باید واضح، گام به گام و عملی باشند.
@@ -446,41 +451,7 @@ export default function ITAssistant() {
         return;
       }
 
-      // چک کن سوال IT هست، احوال‌پرسی هست، یا خارج از حوزه‌ست - همه رو به AI بسپار
-      try {
-        const recentContext = newMessages.slice(-4, -1).map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
-        const contextPrompt = recentContext
-          ? `Conversation so far:\n${recentContext}\n\nNew message: "${userText}"`
-          : `Message: "${userText}"`;
-        const checkRes = await fetchWithFallback("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [{ role: "user", content: `Classify this message into one of these categories:\n- IT: related to IT, computers, software, network, programming, technology\n- GREETING: greeting, thanks, farewell, small talk, acknowledgment (like "ok", "thanks", "bye", "how are you", "ممنون", "سلام", "خداحافظ", "باشه", "نه ممنون", "خوبم")\n- OTHER: anything else not IT-related\n\nAnswer with only one word: IT, GREETING, or OTHER.\n\n${contextPrompt}` }],
-            system_prompt: "You are a classifier. Answer with only one word: IT, GREETING, or OTHER. Nothing else."
-          }),
-        });
-        const checkData = await checkRes.json();
-        const answer = (checkData.reply || "").trim().toUpperCase();
-        if (answer.includes("GREETING")) {
-          const greetingMsg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
-          setMessages([...newMessages, { role: "assistant", content: greetingMsg }]);
-          if (userId) saveMessage(userId, "assistant", greetingMsg);
-          setLoading(false);
-          return;
-        }
-        if (answer.includes("OTHER")) {
-          const notITMsg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT پشتیبانی می‌کنم.";
-          setMessages([...newMessages, { role: "assistant", content: notITMsg }]);
-          if (userId) saveMessage(userId, "assistant", notITMsg);
-          setLoading(false);
-          return;
-        }
-        // IT یا هر چیز دیگه → ادامه بده و جواب بده
-      } catch (e) {
-        // اگه چک fail شد، ادامه بده و جواب بده
-      }
-
+      // یک درخواست - هم تشخیص هم جواب
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
       const res = await fetchWithFallback("/chat", {
         method: "POST",
