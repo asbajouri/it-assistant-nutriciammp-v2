@@ -446,6 +446,17 @@ export default function ITAssistant() {
         return;
       }
 
+      // کلمات احوال‌پرسی و تشکر - مستقیم جواب بده بدون چک
+      const courtesyPhrases = ["ممنون","ممنونم","متشکرم","خوبی","خوب","سلام","مرسی","باشه","اوکی","ok","thanks","thank you","نه ممنون","خداحافظ","bye","چطوری","چطورید","آفرین","عالی","مفید بود"];
+      const lowerText = userText.trim().toLowerCase();
+      if (courtesyPhrases.some(p => lowerText === p || lowerText === p + "!" || lowerText === p + ".")) {
+        const courtesyMsg = "خواهش می‌کنم! 😊 اگه سوال IT دیگه‌ای داشتید در خدمتم.";
+        setMessages([...newMessages, { role: "assistant", content: courtesyMsg }]);
+        if (userId) saveMessage(userId, "assistant", courtesyMsg);
+        setLoading(false);
+        return;
+      }
+
       // چک کن سوال IT هست یا نه - با یه درخواست ساده YES/NO به AI
       try {
         // آخرین ۳ پیام رو برای context بفرست
