@@ -322,7 +322,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، آفیس،نرم افزارها، شبکه یا درخواست‌های IT دارید بپرسید." };
+  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
 
   const loadMessages = () => {
     try {
@@ -446,46 +446,49 @@ export default function ITAssistant() {
         return;
       }
 
-      // چک سریع - فقط OTHER رو بلاک کن
-      try {
-        const recentContext = newMessages.slice(-6, -1)
-          .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
-          .join("\n");
-        const checkRes = await fetchWithFallback("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [{ role: "user", content: `You are a message classifier. Given the conversation context, classify the LAST message.\n\nIMPORTANT: If the last message is a follow-up or continuation of a previous IT conversation (e.g. "translate that", "say it in Farsi", "explain more", "همینو فارسی بگو"), classify it as IT.\n\nConversation:\n${recentContext}\n\nLast message: "${userText}"\n\nCategories:\n- IT: about computers, software, hardware, network, office, excel, windows, domain, technology, OR programming languages (python, پایتون, java, javascript, sql, php, c++, r, matlab, bash, powershell), OR databases, servers, APIs, OR follow-up to IT conversation, OR questions about the assistant itself (who made you, what are you, تو کی هستی, از خودت بگو). When in doubt, classify as IT.\n- GREETING: greetings, thanks, farewell, small talk (ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok, thanks, bye)\n- OTHER: ONLY if completely unrelated to IT like medical advice, cooking, sports, politics. If there is ANY doubt, classify as IT.\n\nAnswer with ONE word: IT or GREETING or OTHER` }],
-            system_prompt: "Classifier. Reply with exactly one word: IT or GREETING or OTHER. Nothing else."
-          }),
-        });
-        const checkData = await checkRes.json();
-        const cls = (checkData.reply || "IT").trim().toUpperCase().split(/\s+/)[0];
-        if (cls === "GREETING") {
-          const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
-          setMessages([...newMessages, { role: "assistant", content: msg }]);
-          if (userId) saveMessage(userId, "assistant", msg);
-          setLoading(false);
-          return;
-        }
-        if (cls === "OTHER") {
-          const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
-          setMessages([...newMessages, { role: "assistant", content: msg }]);
-          if (userId) saveMessage(userId, "assistant", msg);
-          setLoading(false);
-          return;
-        }
-        // IT یا هر چیز دیگه → جواب بده
-      } catch (e) { /* اگه چک fail شد جواب بده */ }
+      // هر دو درخواست رو همزمان بفرست
+      const recentContext = newMessages.slice(-6, -1)
+        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
+        .join("\n");
+
+      const classifyPromise = fetchWithFallback("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: computers, software, hardware, network, office, excel, windows, domain, technology, programming (python, پایتون, java, sql, etc), databases, APIs, follow-up to IT conversation, questions about this assistant. When in doubt → IT.\n- GREETING: hi, thanks, bye, small talk, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok\n- OTHER: ONLY medical, cooking, sports, politics — completely unrelated to IT\n\nOne word only: IT or GREETING or OTHER` }],
+          system_prompt: "Classifier. One word only: IT or GREETING or OTHER"
+        }),
+      }).then(r => r.json()).catch(() => ({ reply: "IT" }));
 
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
-      const res = await fetchWithFallback("/chat", {
+      const answerPromise = fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.reply) throw new Error(data.error || "خطا از سرور");
+      }).then(r => r.json()).catch(() => null);
+
+      // منتظر classifier بمون
+      const checkData = await classifyPromise;
+      const cls = (checkData.reply || "IT").trim().toUpperCase().split(" ")[0];
+
+      if (cls === "GREETING") {
+        const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
+        setMessages([...newMessages, { role: "assistant", content: msg }]);
+        if (userId) saveMessage(userId, "assistant", msg);
+        setLoading(false);
+        return;
+      }
+      if (cls === "OTHER") {
+        const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
+        setMessages([...newMessages, { role: "assistant", content: msg }]);
+        if (userId) saveMessage(userId, "assistant", msg);
+        setLoading(false);
+        return;
+      }
+
+      // IT بود - منتظر جواب اصلی بمون
+      const data = await answerPromise;
+      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
       const reply = cleanText(data.reply);
       setMessages([...newMessages, { role: "assistant", content: reply }]);
       if (userId) saveMessage(userId, "assistant", reply);
