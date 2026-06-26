@@ -322,7 +322,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، دامین، آفیس، شبکه یا درخواست‌های IT دارید بپرسید." };
+  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز،آفیس،نرم افزارها،شبکه یا درخواست‌های IT دارید بپرسید." };
 
   const loadMessages = () => {
     try {
