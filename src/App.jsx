@@ -448,15 +448,15 @@ export default function ITAssistant() {
 
       // چک سریع - فقط OTHER رو بلاک کن
       try {
-        const recentContext = newMessages.slice(-3, -1)
-          .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 100)}`)
+        const recentContext = newMessages.slice(-6, -1)
+          .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
           .join("\n");
         const checkRes = await fetchWithFallback("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: anything about computers, software, hardware, network, office, excel, windows, domain, programming, technology\n- GREETING: hi, thanks, bye, how are you, ok, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی\n- OTHER: medical, cooking, sports, politics, or anything completely unrelated to IT\n\nAnswer with ONE word only: IT or GREETING or OTHER` }],
-            system_prompt: "Classifier. Reply with exactly one word: IT or GREETING or OTHER"
+            messages: [{ role: "user", content: `You are a message classifier. Given the conversation context, classify the LAST message.\n\nIMPORTANT: If the last message is a follow-up or continuation of a previous IT conversation (e.g. "translate that", "say it in Farsi", "explain more", "همینو فارسی بگو"), classify it as IT.\n\nConversation:\n${recentContext}\n\nLast message: "${userText}"\n\nCategories:\n- IT: about computers, software, hardware, network, office, excel, windows, domain, programming, technology, OR a follow-up to an IT conversation\n- GREETING: greetings, thanks, farewell, small talk (ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok, thanks, bye)\n- OTHER: completely unrelated to IT (medical, cooking, sports, politics)\n\nAnswer with ONE word: IT or GREETING or OTHER` }],
+            system_prompt: "Classifier. Reply with exactly one word: IT or GREETING or OTHER. Nothing else."
           }),
         });
         const checkData = await checkRes.json();
