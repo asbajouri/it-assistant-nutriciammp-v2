@@ -16,7 +16,7 @@ async function fetchWithFallback(path, options) {
   }
   throw new Error("هر دو سرور در دسترس نیستند");
 }
-const ADMIN_PASSWORD = "Sb@332211";
+// ADMIN_PASSWORD moved to backend for security
 const SUPABASE_URL = "https://lphczmltctrqmkxktdzo.supabase.co";
 const SUPABASE_KEY = "sb_publishable_4zAcw2YmjJkFnpgZI-ZzLQ_EXznYJs_";
 
@@ -322,7 +322,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز،آفیس،نرم افزارها،شبکه یا درخواست‌های IT دارید بپرسید." };
+  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، آفیس، نرم‌افزارها، شبکه یا درخواست‌های IT دارید بپرسید." };
 
   const loadMessages = () => {
     try {
@@ -497,9 +497,24 @@ export default function ITAssistant() {
     } finally { setLoading(false); }
   };
 
-  const handleAdminLogin = () => {
-    if (adminPass === ADMIN_PASSWORD) { setShowAdminLogin(false); setShowAdminPanel(true); setAdminPass(""); setAdminError(""); }
-    else setAdminError("پسورد اشتباه است");
+  const handleAdminLogin = async () => {
+    try {
+      const res = await fetchWithFallback("/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPass })
+      });
+      if (res.ok) {
+        setShowAdminLogin(false);
+        setShowAdminPanel(true);
+        setAdminPass("");
+        setAdminError("");
+      } else {
+        setAdminError("پسورد اشتباه است");
+      }
+    } catch {
+      setAdminError("خطا در اتصال به سرور");
+    }
   };
 
   return (
