@@ -576,6 +576,23 @@ export default function ITAssistant() {
     return partial ? partial.answer : null;
   };
 
+  const renderMessage = (text) => {
+    const urlRegex = /(https?:\/\/[^\s؀-ۿ]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) => {
+      if (urlRegex.test(part)) {
+        const isDownload = part.includes('.cmd') || part.includes('.exe') || part.includes('.zip') || part.includes('.msi');
+        return (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+            style={{ color: "#0078d4", textDecoration: "underline", wordBreak: "break-all", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {isDownload ? "📥 دانلود فایل" : part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
 
   const sendMessage = async (text) => {
@@ -700,7 +717,7 @@ export default function ITAssistant() {
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-start" : "flex-end", alignItems: "flex-end", gap: 8 }}>
             {msg.role === "assistant" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>}
-            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: msg.role === "user" ? "18px 18px 18px 4px" : "18px 18px 4px 18px", background: msg.role === "user" ? "#0078d4" : "#ffffff", color: msg.role === "user" ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: "rtl", textAlign: "right" }}>{msg.content}</div>
+            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: msg.role === "user" ? "18px 18px 18px 4px" : "18px 18px 4px 18px", background: msg.role === "user" ? "#0078d4" : "#ffffff", color: msg.role === "user" ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: "rtl", textAlign: "right" }}>{msg.role === "user" ? msg.content : renderMessage(msg.content)}</div>
             {msg.role === "user" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>}
           </div>
         ))}
