@@ -227,6 +227,65 @@ function AdminPanel({ onClose, onDataChanged }) {
     } catch { showMsg("⚠️ خطا در حذف"); }
   };
 
+  // ── اسناد آموزشی ──
+  const [docs, setDocs] = useState([]);
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [docCategory, setDocCategory] = useState("general");
+  const [docEditId, setDocEditId] = useState(null);
+
+  useEffect(() => { loadDocs(); }, []);
+
+  const loadDocs = async () => {
+    try {
+      const data = await sbFetch("knowledge_docs?order=created_at.desc");
+      setDocs(data);
+    } catch { showMsg("⚠️ خطا در بارگذاری اسناد"); }
+  };
+
+  const saveDoc = async () => {
+    if (!docTitle.trim() || !docContent.trim()) { showMsg("⚠️ عنوان و محتوا را پر کنید"); return; }
+    setLoading(true);
+    try {
+      if (docEditId !== null) {
+        await sbFetch(`knowledge_docs?id=eq.${docEditId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title: docTitle, content: docContent, category: docCategory })
+        });
+        setDocEditId(null);
+      } else {
+        await sbFetch("knowledge_docs", {
+          method: "POST",
+          body: JSON.stringify({ title: docTitle, content: docContent, category: docCategory })
+        });
+      }
+      setDocTitle(""); setDocContent(""); setDocCategory("general");
+      await loadDocs();
+      showMsg("✅ سند ذخیره شد");
+    } catch { showMsg("⚠️ خطا در ذخیره"); }
+    setLoading(false);
+  };
+
+  const deleteDoc = async (id) => {
+    if (!window.confirm("این سند حذف شود؟")) return;
+    try {
+      await sbFetch(`knowledge_docs?id=eq.${id}`, { method: "DELETE" });
+      await loadDocs();
+      showMsg("✅ حذف شد");
+    } catch { showMsg("⚠️ خطا در حذف"); }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setDocContent(ev.target.result);
+      if (!docTitle) setDocTitle(file.name.replace(/\.[^/.]+$/, ""));
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
   const tabStyle = (t) => ({
     padding: "10px 20px", border: "none", cursor: "pointer",
     fontFamily: "inherit", fontSize: 14, fontWeight: 600,
@@ -251,6 +310,7 @@ function AdminPanel({ onClose, onDataChanged }) {
         <div style={{ borderBottom: "1px solid #eee", display: "flex", padding: "0 16px" }}>
           <button style={tabStyle("buttons")} onClick={() => setTab("buttons")}>🔘 دکمه‌های سریع</button>
           <button style={tabStyle("qa")} onClick={() => setTab("qa")}>💬 سوال و جواب اختصاصی</button>
+          <button style={tabStyle("docs")} onClick={() => setTab("docs")}>📚 اسناد آموزشی</button>
         </div>
 
         <div style={{ padding: 20 }}>
@@ -284,6 +344,53 @@ function AdminPanel({ onClose, onDataChanged }) {
                     <button onClick={() => { setBtnLabel(btn.label); setBtnQ(btn.question); setBtnEditId(btn.id); }} style={{ padding: "6px 14px", background: "#ffc107", color: "#333", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>ویرایش</button>
                     <button onClick={() => deleteBtn(btn.id)} style={{ padding: "6px 14px", background: "#dc3545", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>حذف</button>
                   </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {tab === "docs" && (
+            <>
+              <div style={{ background: "#f8f9fa", borderRadius: 8, padding: 16, marginBottom: 20 }}>
+                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>{docEditId !== null ? "✏️ ویرایش سند" : "➕ افزودن سند آموزشی"}</h3>
+                <input value={docTitle} onChange={e => setDocTitle(e.target.value)} placeholder="عنوان سند..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}} />
+                <select value={docCategory} onChange={e => setDocCategory(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}}>
+                  <option value="general">عمومی</option>
+                  <option value="windows">ویندوز</option>
+                  <option value="office">آفیس</option>
+                  <option value="network">شبکه</option>
+                  <option value="erp">راهکاران / ERP</option>
+                  <option value="domain">دامین</option>
+                  <option value="other">سایر</option>
+                </select>
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:13,color:"#555",display:"block",marginBottom:6}}>📁 آپلود فایل (MD یا TXT):</label>
+                  <input type="file" accept=".md,.txt" onChange={handleFileUpload} style={{fontSize:13}} />
+                </div>
+                <textarea value={docContent} onChange={e => setDocContent(e.target.value)} placeholder="یا متن را اینجا paste کنید..." rows={8} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:13,direction:"rtl",resize:"vertical",boxSizing:"border-box"}} />
+                <div style={{fontSize:12,color:"#999",marginBottom:10}}>📊 {docContent.length.toLocaleString()} کاراکتر</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveDoc} disabled={loading} style={{padding:"9px 20px",background:"#0078d4",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>
+                    {loading ? "..." : docEditId !== null ? "ویرایش" : "افزودن"}
+                  </button>
+                  {docEditId !== null && <button onClick={() => { setDocEditId(null); setDocTitle(""); setDocContent(""); setDocCategory("general"); }} style={{padding:"9px 20px",background:"#6c757d",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>انصراف</button>}
+                </div>
+              </div>
+              <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>اسناد ذخیره شده ({docs.length})</h3>
+              {docs.length === 0 ? <p style={{color:"#999",textAlign:"center",padding:30}}>هنوز سندی اضافه نشده</p> : docs.map((doc) => (
+                <div key={doc.id} style={{border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 14px",marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={() => { setDocTitle(doc.title); setDocContent(doc.content); setDocCategory(doc.category||"general"); setDocEditId(doc.id); }} style={{padding:"6px 14px",background:"#ffc107",color:"#333",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>ویرایش</button>
+                      <button onClick={() => deleteDoc(doc.id)} style={{padding:"6px 14px",background:"#dc3545",color:"white",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>حذف</button>
+                    </div>
+                    <div>
+                      <span style={{fontWeight:600,color:"#0078d4",fontSize:14}}>📄 {doc.title}</span>
+                      <span style={{marginRight:8,fontSize:11,background:"#e8f4fd",color:"#0078d4",padding:"2px 8px",borderRadius:10}}>{doc.category||"general"}</span>
+                    </div>
+                  </div>
+                  <div style={{color:"#666",fontSize:12,textAlign:"right"}}>{doc.content.slice(0,150)}...</div>
+                  <div style={{color:"#999",fontSize:11,marginTop:4,textAlign:"right"}}>{doc.content.length.toLocaleString()} کاراکتر</div>
                 </div>
               ))}
             </>
@@ -397,15 +504,39 @@ export default function ITAssistant() {
     sendMessage(question);
   };
 
-  const buildSystemPrompt = async () => {
+  const searchDocs = async (query) => {
     try {
-      const customQA = await sbFetch("custom_qa?order=id");
-      if (customQA.length === 0) return { prompt: BASE_KNOWLEDGE, qaList: [] };
-      const customSection = customQA.map(item => `سوال: ${item.question}\nجواب: ${item.answer}`).join("\n\n");
-      return {
-        prompt: `${BASE_KNOWLEDGE}\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n${customSection}`,
-        qaList: customQA
-      };
+      const allDocs = await sbFetch("knowledge_docs?order=created_at.desc");
+      if (!allDocs || allDocs.length === 0) return "";
+      const q = query.toLowerCase();
+      const words = q.split(" ").filter(w => w.length > 2);
+      const scored = allDocs.map(doc => {
+        const text = (doc.title + " " + doc.content).toLowerCase();
+        const score = words.reduce((s, w) => s + (text.split(w).length - 1), 0);
+        return { ...doc, score };
+      }).filter(d => d.score > 0).sort((a, b) => b.score - a.score);
+      if (scored.length === 0) return "";
+      return scored.slice(0, 2).map(d =>
+        "=== سند: " + d.title + " (" + d.category + ") ===\n" + d.content.slice(0, 2000)
+      ).join("\n\n");
+    } catch { return ""; }
+  };
+
+  const buildSystemPrompt = async (userText) => {
+    try {
+      const [customQA, docsContext] = await Promise.all([
+        sbFetch("custom_qa?order=id"),
+        userText ? searchDocs(userText) : Promise.resolve("")
+      ]);
+      let prompt = BASE_KNOWLEDGE;
+      if (customQA.length > 0) {
+        const customSection = customQA.map(item => "سوال: " + item.question + "\nجواب: " + item.answer).join("\n\n");
+        prompt += "\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n" + customSection;
+      }
+      if (docsContext) {
+        prompt += "\n\n=== اسناد آموزشی مرتبط ===\n" + docsContext;
+      }
+      return { prompt, qaList: customQA };
     } catch { return { prompt: BASE_KNOWLEDGE, qaList: [] }; }
   };
 
@@ -435,7 +566,7 @@ export default function ITAssistant() {
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
     try {
-      const { prompt: systemPrompt, qaList } = await buildSystemPrompt();
+      const { prompt: systemPrompt, qaList } = await buildSystemPrompt(userText);
 
       // اول چک کن سوال اختصاصی داره یا نه
       const exactAnswer = findExactQA(userText, qaList);
