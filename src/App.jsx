@@ -118,25 +118,43 @@ cscript ospp.vbs /act
 همیشه مودب، صبور و حرفه‌ای باش.
 
 === ابزار اکتیواسیون KMS ===
-اگر کاربر درباره اکتیو نبودن ویندوز یا آفیس سوال کرد یا گفت ویندوز/آفیسش اکتیو نیست، این مراحل رو بده:
+اگر کاربر درباره اکتیو نبودن ویندوز یا آفیس سوال کرد یا گفت ویندوز/آفیسش اکتیو نیست:
 
-۱. اول بپرس: آیا به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟
-۲. اگر وصل بود: ابزار اتوماتیک اکتیواسیون رو معرفی کن و لینک دانلود بده
-۳. اگر وصل نبود: بگو باید ابتدا به شبکه شرکت وصل شوید
+قدم اول: بپرس "آیا به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟"
 
-ابزار اکتیواسیون Danone KMS Activation Agent:
-- این ابزار به صورت خودکار وضعیت ویندوز و آفیس رو چک میکنه
-- اگر اکتیو نباشن، از طریق KMS Server شرکت (kms.danonemulti.net) اکتیوشون میکنه
-- لینک دانلود: https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/KMS%20Activator/Danone_Activation_Agent%20.cmd
+اگر جواب بله بود، این پیام رو بده:
+---
+✅ عالی! چون به شبکه شرکت وصل هستید، می‌توانید از ابزار اتوماتیک اکتیواسیون استفاده کنید.
+
+📥 لینک دانلود ابزار:
+https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
 
 راهنمای اجرا:
-۱. فایل را دانلود کنید
-۲. روی فایل کلیک راست کنید
-۳. گزینه "Run as Administrator" را انتخاب کنید
-۴. منتظر بمانید تا عملیات تکمیل شود
-۵. نتیجه را در پنجره مشاهده کنید
+1. فایل را دانلود کنید
+2. روی فایل کلیک راست کنید
+3. گزینه Run as Administrator را انتخاب کنید
+4. منتظر بمانید تا عملیات به پایان برسد
+5. نتیجه را در پنجره مشاهده کنید
 
-نکته مهم: حتماً باید به شبکه داخلی شرکت وصل باشید وگرنه اکتیواسیون انجام نمیشه.`;
+اگر در حین اجرا با مشکلی مواجه شدید، اطلاعات بیشتری را بفرمایید تا کمک کنم.
+---
+
+اگر جواب خیر بود، این پیام رو بده:
+---
+⚠️ نگران نباشید! برای این حالت هم ابزار مخصوص داریم که بدون نیاز به شبکه داخلی کار می‌کند.
+
+📥 لینک دانلود ابزار اکتیواسیون (بدون نیاز به شبکه داخلی):
+https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
+
+راهنمای اجرا:
+1. فایل را دانلود کنید
+2. روی فایل کلیک راست کنید
+3. گزینه Run as Administrator را انتخاب کنید
+4. منتظر بمانید تا عملیات به پایان برسد
+5. نتیجه را در پنجره مشاهده کنید
+
+اگر در حین اجرا با مشکلی مواجه شدید اطلاع دهید.
+---`;
 
 function AdminPanel({ onClose, onDataChanged }) {
   const [tab, setTab] = useState("buttons");
@@ -577,10 +595,10 @@ export default function ITAssistant() {
   };
 
   const renderMessage = (text) => {
-    const urlRegex = /(https?:\/\/[^\s؀-ۿ]+)/g;
+    const urlRegex = /(https?:\/\/[^\s\u0600-\u06FF\)\].,،؟!]+)/g;
     const parts = text.split(urlRegex);
     return parts.map((part, i) => {
-      if (urlRegex.test(part)) {
+      if (/^https?:\/\//.test(part)) {
         const isDownload = part.includes('.cmd') || part.includes('.exe') || part.includes('.zip') || part.includes('.msi');
         return (
           <a key={i} href={part} target="_blank" rel="noopener noreferrer"
