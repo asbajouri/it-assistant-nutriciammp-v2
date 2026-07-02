@@ -118,43 +118,31 @@ cscript ospp.vbs /act
 همیشه مودب، صبور و حرفه‌ای باش.
 
 === ابزار اکتیواسیون KMS ===
-اگر کاربر درباره اکتیو نبودن ویندوز یا آفیس سوال کرد یا گفت ویندوز/آفیسش اکتیو نیست:
+اگر کاربر گفت ویندوز یا آفیسش اکتیو نیست یا سوالی درباره اکتیواسیون داشت:
 
-قدم اول: بپرس "آیا به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟"
+قدم اول: بپرس "آیا الان به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟"
 
-اگر جواب بله بود، این پیام رو بده:
----
-✅ عالی! چون به شبکه شرکت وصل هستید، می‌توانید از ابزار اتوماتیک اکتیواسیون استفاده کنید.
+اگر جواب بله بود، دقیقاً این متن رو بده:
+✅ عالی! چون به شبکه داخلی شرکت وصل هستید، از ابزار KMS داخلی استفاده کنید.
 
-📥 لینک دانلود ابزار:
-https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
+📥 لینک دانلود: https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/KMS%20Activator/Danone_Activation_Agent%20.cmd
 
 راهنمای اجرا:
 1. فایل را دانلود کنید
 2. روی فایل کلیک راست کنید
 3. گزینه Run as Administrator را انتخاب کنید
-4. منتظر بمانید تا عملیات به پایان برسد
-5. نتیجه را در پنجره مشاهده کنید
+4. منتظر بمانید تا عملیات تکمیل شود
 
-اگر در حین اجرا با مشکلی مواجه شدید، اطلاعات بیشتری را بفرمایید تا کمک کنم.
----
+اگر جواب خیر بود، دقیقاً این متن رو بده:
+⚠️ نگران نباشید! ابزار مخصوص اینترنت عمومی هم داریم.
 
-اگر جواب خیر بود، این پیام رو بده:
----
-⚠️ نگران نباشید! برای این حالت هم ابزار مخصوص داریم که بدون نیاز به شبکه داخلی کار می‌کند.
-
-📥 لینک دانلود ابزار اکتیواسیون (بدون نیاز به شبکه داخلی):
-https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
+📥 لینک دانلود: https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
 
 راهنمای اجرا:
 1. فایل را دانلود کنید
 2. روی فایل کلیک راست کنید
 3. گزینه Run as Administrator را انتخاب کنید
-4. منتظر بمانید تا عملیات به پایان برسد
-5. نتیجه را در پنجره مشاهده کنید
-
-اگر در حین اجرا با مشکلی مواجه شدید اطلاع دهید.
----`;
+4. منتظر بمانید تا عملیات تکمیل شود`;
 
 function AdminPanel({ onClose, onDataChanged }) {
   const [tab, setTab] = useState("buttons");
@@ -595,15 +583,16 @@ export default function ITAssistant() {
   };
 
   const renderMessage = (text) => {
-    const urlRegex = /(https?:\/\/[^\s\u0600-\u06FF\)\].,،؟!]+)/g;
-    const parts = text.split(urlRegex);
+    const parts = text.split(/(https?:\/\/\S+)/g);
     return parts.map((part, i) => {
-      if (/^https?:\/\//.test(part)) {
-        const isDownload = part.includes('.cmd') || part.includes('.exe') || part.includes('.zip') || part.includes('.msi');
+      if (part.startsWith("http://") || part.startsWith("https://")) {
+        const cleanUrl = part.replace(/[.,،؟!)\]]+$/, "");
+        const isDownload = cleanUrl.match(/\.(cmd|exe|zip|msi|bat)$/i);
         return (
-          <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-            style={{ color: "#0078d4", textDecoration: "underline", wordBreak: "break-all", display: "inline-flex", alignItems: "center", gap: 4 }}>
-            {isDownload ? "📥 دانلود فایل" : part}
+          <a key={i} href={cleanUrl} target="_blank" rel="noopener noreferrer"
+            download={isDownload ? true : undefined}
+            style={{ color: "#0078d4", textDecoration: "underline", fontWeight: 600 }}>
+            {isDownload ? "📥 دانلود فایل" : cleanUrl}
           </a>
         );
       }
