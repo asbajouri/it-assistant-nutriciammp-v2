@@ -313,6 +313,52 @@ function AdminPanel({ onClose, onDataChanged }) {
     reader.readAsText(file, "UTF-8");
   };
 
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  const loadStats = async () => {
+    setStatsLoading(true);
+    try {
+      const logs = await sbFetch("chat_logs?order=created_at.desc&limit=1000");
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const todayLogs = logs.filter(l => l.created_at.slice(0, 10) === today);
+      
+      // آمار کلی
+      const totalAI = logs.filter(l => l.type === "ai").length;
+      const totalDB = logs.filter(l => l.type === "database").length;
+      const totalGreeting = logs.filter(l => l.type === "system" && l.source === "greeting").length;
+      const totalOOS = logs.filter(l => l.source === "out_of_scope").length;
+
+      // آمار امروز
+      const todayAI = todayLogs.filter(l => l.type === "ai").length;
+      const todayDB = todayLogs.filter(l => l.type === "database").length;
+
+      // منابع AI
+      const sources = {};
+      logs.filter(l => l.type === "ai").forEach(l => {
+        const src = l.source || "unknown";
+        const key = src.startsWith("groq") ? "Groq" : 
+                    src.startsWith("gemini") ? "Gemini" :
+                    src.startsWith("github") ? "GitHub Models" :
+                    src.startsWith("cloudflare") ? "Cloudflare" : src;
+        sources[key] = (sources[key] || 0) + 1;
+      });
+
+      // آمار ۷ روز اخیر
+      const daily = {};
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        daily[key] = logs.filter(l => l.created_at.slice(0, 10) === key).length;
+      }
+
+      setStats({ totalAI, totalDB, totalGreeting, totalOOS, todayAI, todayDB, sources, daily, total: logs.length });
+    } catch { showMsg("⚠️ خطا در بارگذاری آمار"); }
+    setStatsLoading(false);
+  };
+
   const tabStyle = (t) => ({
     padding: "10px 20px", border: "none", cursor: "pointer",
     fontFamily: "inherit", fontSize: 14, fontWeight: 600,
@@ -338,6 +384,7 @@ function AdminPanel({ onClose, onDataChanged }) {
           <button style={tabStyle("buttons")} onClick={() => setTab("buttons")}>🔘 دکمه‌های سریع</button>
           <button style={tabStyle("qa")} onClick={() => setTab("qa")}>💬 سوال و جواب اختصاصی</button>
           <button style={tabStyle("docs")} onClick={() => setTab("docs")}>📚 اسناد آموزشی</button>
+          <button style={tabStyle("stats")} onClick={() => { setTab("stats"); loadStats(); }}>📊 آمار</button>
         </div>
 
         <div style={{ padding: 20 }}>
@@ -373,6 +420,87 @@ function AdminPanel({ onClose, onDataChanged }) {
                   </div>
                 </div>
               ))}
+            </>
+          )}
+
+          {tab === "stats" && (
+            <>
+              {statsLoading ? (
+                <div style={{textAlign:"center",padding:40,color:"#666"}}>در حال بارگذاری...</div>
+              ) : stats ? (
+                <>
+                  {/* کارت‌های خلاصه */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+                    {[
+                      {label:"کل پیام‌ها",value:stats.total,color:"#0078d4",icon:"💬"},
+                      {label:"جواب AI امروز",value:stats.todayAI,color:"#0d9488",icon:"🤖"},
+                      {label:"از دیتابیس امروز",value:stats.todayDB,color:"#6d28d9",icon:"🗄️"},
+                      {label:"خارج از حوزه",value:stats.totalOOS,color:"#dc3545",icon:"🚫"},
+                    ].map((c,i) => (
+                      <div key={i} style={{background:"white",borderRadius:10,padding:"16px 14px",textAlign:"center",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",border:`2px solid ${c.color}22`}}>
+                        <div style={{fontSize:24}}>{c.icon}</div>
+                        <div style={{fontSize:26,fontWeight:700,color:c.color,margin:"4px 0"}}>{c.value}</div>
+                        <div style={{fontSize:11,color:"#666"}}>{c.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* آمار کلی */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+                    <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                      <h4 style={{margin:"0 0 12px",color:"#0078d4",fontSize:14}}>📊 کل آمار</h4>
+                      {[
+                        {label:"جواب‌های AI",value:stats.totalAI,color:"#0078d4"},
+                        {label:"جواب‌های دیتابیس",value:stats.totalDB,color:"#0d9488"},
+                        {label:"احوال‌پرسی",value:stats.totalGreeting,color:"#6d28d9"},
+                        {label:"خارج از حوزه",value:stats.totalOOS,color:"#dc3545"},
+                      ].map((r,i) => (
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f0f0f0"}}>
+                          <span style={{fontWeight:600,color:r.color}}>{r.value}</span>
+                          <span style={{fontSize:13,color:"#444"}}>{r.label}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                      <h4 style={{margin:"0 0 12px",color:"#0078d4",fontSize:14}}>🤖 منابع AI</h4>
+                      {Object.entries(stats.sources).sort((a,b)=>b[1]-a[1]).map(([src,cnt],i) => (
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f0f0f0"}}>
+                          <span style={{fontWeight:600,color:"#0078d4"}}>{cnt}</span>
+                          <span style={{fontSize:12,color:"#444"}}>{src}</span>
+                        </div>
+                      ))}
+                      {Object.keys(stats.sources).length === 0 && <p style={{color:"#999",fontSize:13,textAlign:"center"}}>هنوز داده‌ای نیست</p>}
+                    </div>
+                  </div>
+
+                  {/* ۷ روز اخیر */}
+                  <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                    <h4 style={{margin:"0 0 12px",color:"#0078d4",fontSize:14}}>📅 ۷ روز اخیر</h4>
+                    <div style={{display:"flex",gap:8,alignItems:"flex-end",height:80}}>
+                      {Object.entries(stats.daily).map(([date,cnt],i) => {
+                        const max = Math.max(...Object.values(stats.daily), 1);
+                        const h = Math.max((cnt/max)*70, cnt>0?4:0);
+                        return (
+                          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                            <div style={{fontSize:10,color:"#666",fontWeight:600}}>{cnt}</div>
+                            <div style={{width:"100%",height:`${h}px`,background:"#0078d4",borderRadius:"4px 4px 0 0",transition:"height 0.3s"}}/>
+                            <div style={{fontSize:9,color:"#999",writingMode:"vertical-rl",transform:"rotate(180deg)"}}>{date.slice(5)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{textAlign:"center",marginTop:16}}>
+                    <button onClick={loadStats} style={{padding:"8px 20px",background:"#0078d4",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🔄 بروزرسانی</button>
+                  </div>
+                </>
+              ) : (
+                <div style={{textAlign:"center",padding:40}}>
+                  <button onClick={loadStats} style={{padding:"10px 24px",background:"#0078d4",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>📊 نمایش آمار</button>
+                </div>
+              )}
             </>
           )}
 
@@ -600,6 +728,15 @@ export default function ITAssistant() {
     });
   };
 
+  const logChat = async (source, type) => {
+    try {
+      await sbFetch("chat_logs", {
+        method: "POST",
+        body: JSON.stringify({ source, type })
+      });
+    } catch {}
+  };
+
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
 
   const sendMessage = async (text) => {
@@ -618,6 +755,7 @@ export default function ITAssistant() {
       if (exactAnswer) {
         setMessages([...newMessages, { role: "assistant", content: exactAnswer }]);
         if (userId) saveMessage(userId, "assistant", exactAnswer);
+        logChat("custom_qa", "database");
         setLoading(false);
         return;
       }
@@ -651,6 +789,7 @@ export default function ITAssistant() {
         const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
         setMessages([...newMessages, { role: "assistant", content: msg }]);
         if (userId) saveMessage(userId, "assistant", msg);
+        logChat("greeting", "system");
         setLoading(false);
         return;
       }
@@ -658,6 +797,7 @@ export default function ITAssistant() {
         const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
         setMessages([...newMessages, { role: "assistant", content: msg }]);
         if (userId) saveMessage(userId, "assistant", msg);
+        logChat("out_of_scope", "system");
         setLoading(false);
         return;
       }
@@ -668,6 +808,7 @@ export default function ITAssistant() {
       const reply = cleanText(data.reply);
       setMessages([...newMessages, { role: "assistant", content: reply }]);
       if (userId) saveMessage(userId, "assistant", reply);
+      logChat(data.source || "ai", "ai");
     } catch (err) {
       setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
     } finally { setLoading(false); }
