@@ -798,16 +798,8 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: `Is this message a GREETING or OTHER (non-IT)?
-
-Message: "${userText}"
-
-- GREETING: only if it's purely a greeting/thanks like سلام, ممنون, مرسی, hi, thanks, bye
-- OTHER: only if it's clearly non-IT like medical advice, cooking, sports scores
-- If you're not 100% sure → answer IT
-
-Reply with ONE word: IT or GREETING or OTHER` }],
-          system_prompt: "You classify messages. Reply with exactly one word: IT or GREETING or OTHER. When in doubt, always reply IT."
+          messages: [{ role: "user", content: `Classify: "${userText}"\n\nRules:\n- IT: anything about computers, software, hardware, network, office, excel, windows, linux, mac, programming, AI, machine learning, cloud, APIs, databases, cybersecurity, printers, phones, tech tools, domain, VPN, or any technology topic. When in doubt → IT.\n- GREETING: purely a greeting/thanks/bye with no question (سلام, ممنون, مرسی, hi, thanks)\n- OTHER: only clearly non-tech topics like medical symptoms, cooking recipes, sports scores, weather\n\nOne word only: IT or GREETING or OTHER` }],
+          system_prompt: "Classify messages into IT, GREETING, or OTHER. Default to IT for anything tech-related or ambiguous."
         }),
       }).then(r => r.json()).catch(() => ({ reply: "IT" }));
 
