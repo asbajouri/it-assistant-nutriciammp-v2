@@ -1,31 +1,27 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const API_URLS = [
   "https://asbajouri-it-assistant-api.hf.space",
   "https://it-assistant-api.onrender.com",
 ];
 
-// Cache برای custom_qa تا هر بار از Supabase نخونیم
-let qaCache = null;
-let qaCacheTime = 0;
-const QA_CACHE_TTL = 5 * 60 * 1000; // 5 دقیقه
+// Cache برای custom_qa
+let _qaCache = null;
+let _qaCacheTime = 0;
 
 async function fetchWithFallback(path, options) {
   for (const base of API_URLS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
-        clearTimeout(timer);
-        if (res.ok) return res;
-        break;
-      } catch (e) {
-        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
-      }
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+      clearTimeout(t);
+      if (res.ok) return res;
+    } catch (e) {
+      continue;
     }
   }
-  throw new Error("سرور در دسترس نیست");
+  throw new Error("هر دو سرور در دسترس نیستند");
 }
 // ADMIN_PASSWORD moved to backend for security
 const SUPABASE_URL = "https://lphczmltctrqmkxktdzo.supabase.co";
@@ -690,15 +686,15 @@ export default function ITAssistant() {
 
   const buildSystemPrompt = async (userText) => {
     try {
-      // cache برای custom_qa
-      let customQA = qaCache;
-      if (!customQA || Date.now() - qaCacheTime > QA_CACHE_TTL) {
-        const data = await sbFetch("custom_qa?order=id");
-        customQA = data;
-        qaCache = data;
-        qaCacheTime = Date.now();
+      // cache برای custom_qa — هر 5 دقیقه یه بار از Supabase میخونه
+      if (!_qaCache || Date.now() - _qaCacheTime > 300000) {
+        _qaCache = await sbFetch("custom_qa?order=id");
+        _qaCacheTime = Date.now();
       }
-      const docsContext = userText ? await searchDocs(userText) : "";
+      const [customQA, docsContext] = await Promise.all([
+        Promise.resolve(_qaCache),
+        userText ? searchDocs(userText) : Promise.resolve("")
+      ]);
       let prompt = BASE_KNOWLEDGE;
       if (customQA.length > 0) {
         const customSection = customQA.map(item => "سوال: " + item.question + "\nجواب: " + item.answer).join("\n\n");
@@ -776,20 +772,7 @@ export default function ITAssistant() {
         return;
       }
 
-      // چک سریع GREETING بدون API
-      const lowerText = userText.trim().toLowerCase();
-      const greetingWords = ["سلام", "ممنون", "مرسی", "خداحافظ", "خوبم", "باشه", "ok", "hi", "hello", "thanks", "bye"];
-      const isGreeting = greetingWords.some(w => lowerText === w || lowerText === w + "!" || lowerText === w + ".");
-      if (isGreeting) {
-        const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
-        setMessages([...newMessages, { role: "assistant", content: msg }]);
-        if (userId) saveMessage(userId, "assistant", msg);
-        logChat("greeting", "system");
-        setLoading(false);
-        return;
-      }
-
-      // هر دو درخواست همزمان
+      // هر دو درخواست رو همزمان بفرست
       const recentContext = newMessages.slice(-6, -1)
         .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
         .join("\n");
@@ -798,8 +781,8 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: `Classify: "${userText}"\n\nRules:\n- IT: anything about computers, software, hardware, network, office, excel, windows, linux, mac, programming, AI, machine learning, cloud, APIs, databases, cybersecurity, printers, phones, tech tools, domain, VPN, or any technology topic. When in doubt → IT.\n- GREETING: purely a greeting/thanks/bye with no question (سلام, ممنون, مرسی, hi, thanks)\n- OTHER: only clearly non-tech topics like medical symptoms, cooking recipes, sports scores, weather\n\nOne word only: IT or GREETING or OTHER` }],
-          system_prompt: "Classify messages into IT, GREETING, or OTHER. Default to IT for anything tech-related or ambiguous."
+          messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: computers, software, hardware, network, office, excel, windows, domain, technology, programming (python, پایتون, java, sql, etc), databases, APIs, follow-up to IT conversation, questions about this assistant. When in doubt → IT.\n- GREETING: hi, thanks, bye, small talk, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok\n- OTHER: ONLY medical, cooking, sports, politics — completely unrelated to IT\n\nOne word only: IT or GREETING or OTHER` }],
+          system_prompt: "Classifier. One word only: IT or GREETING or OTHER"
         }),
       }).then(r => r.json()).catch(() => ({ reply: "IT" }));
 
@@ -813,8 +796,7 @@ export default function ITAssistant() {
       // منتظر classifier بمون
       const checkData = await classifyPromise;
       const rawCls = (checkData.reply || "IT").trim().toUpperCase();
-      // فقط اگه دقیقاً GREETING یا OTHER بود قبول کن، وگرنه IT
-      const cls = rawCls === "GREETING" ? "GREETING" : rawCls === "OTHER" ? "OTHER" : "IT";
+      const cls = rawCls.startsWith("GREETING") ? "GREETING" : rawCls.startsWith("OTHER") ? "OTHER" : "IT";
 
       if (cls === "GREETING") {
         const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
