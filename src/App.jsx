@@ -798,8 +798,16 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: computers, software, hardware, network, office, excel, windows, domain, technology, programming (python, پایتون, java, sql, etc), databases, APIs, follow-up to IT conversation, questions about this assistant. When in doubt → IT.\n- GREETING: hi, thanks, bye, small talk, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok\n- OTHER: ONLY medical, cooking, sports, politics — completely unrelated to IT\n\nOne word only: IT or GREETING or OTHER` }],
-          system_prompt: "Classifier. One word only: IT or GREETING or OTHER"
+          messages: [{ role: "user", content: `Is this message a GREETING or OTHER (non-IT)?
+
+Message: "${userText}"
+
+- GREETING: only if it's purely a greeting/thanks like سلام, ممنون, مرسی, hi, thanks, bye
+- OTHER: only if it's clearly non-IT like medical advice, cooking, sports scores
+- If you're not 100% sure → answer IT
+
+Reply with ONE word: IT or GREETING or OTHER` }],
+          system_prompt: "You classify messages. Reply with exactly one word: IT or GREETING or OTHER. When in doubt, always reply IT."
         }),
       }).then(r => r.json()).catch(() => ({ reply: "IT" }));
 
@@ -812,7 +820,9 @@ export default function ITAssistant() {
 
       // منتظر classifier بمون
       const checkData = await classifyPromise;
-      const cls = (checkData.reply || "IT").trim().toUpperCase().split(" ")[0];
+      const rawCls = (checkData.reply || "IT").trim().toUpperCase();
+      // فقط اگه دقیقاً GREETING یا OTHER بود قبول کن، وگرنه IT
+      const cls = rawCls === "GREETING" ? "GREETING" : rawCls === "OTHER" ? "OTHER" : "IT";
 
       if (cls === "GREETING") {
         const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
