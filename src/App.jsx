@@ -776,7 +776,7 @@ export default function ITAssistant() {
         return;
       }
 
-      // چک سریع GREETING و OTHER قبل از API
+      // چک سریع GREETING بدون API
       const lowerText = userText.trim().toLowerCase();
       const greetingWords = ["سلام", "ممنون", "مرسی", "خداحافظ", "خوبم", "باشه", "ok", "hi", "hello", "thanks", "bye"];
       const isGreeting = greetingWords.some(w => lowerText === w || lowerText === w + "!" || lowerText === w + ".");
@@ -789,32 +789,40 @@ export default function ITAssistant() {
         return;
       }
 
-      // یک درخواست ترکیبی: هم classify هم جواب
-      const recentContext = newMessages.slice(-4, -1)
-        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 200)}`)
+      // هر دو درخواست همزمان
+      const recentContext = newMessages.slice(-6, -1)
+        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
         .join("\n");
 
-      const combinedSystemPrompt = systemPrompt + `
-
-=== CLASSIFICATION RULE ===
-Before answering, on the VERY FIRST LINE write one of: [IT] or [OTHER]
-- [IT]: computers, software, windows, office, network, domain, excel, outlook, vpn, printer, IT requests
-- [OTHER]: ONLY if completely unrelated to IT (medical, cooking, sports, politics)
-Then answer normally after the tag.`;
-
-      const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
-      const data = await fetchWithFallback("/chat", {
+      const classifyPromise = fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMsgs, system_prompt: combinedSystemPrompt }),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: computers, software, hardware, network, office, excel, windows, domain, technology, programming (python, پایتون, java, sql, etc), databases, APIs, follow-up to IT conversation, questions about this assistant. When in doubt → IT.\n- GREETING: hi, thanks, bye, small talk, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok\n- OTHER: ONLY medical, cooking, sports, politics — completely unrelated to IT\n\nOne word only: IT or GREETING or OTHER` }],
+          system_prompt: "Classifier. One word only: IT or GREETING or OTHER"
+        }),
+      }).then(r => r.json()).catch(() => ({ reply: "IT" }));
+
+      const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
+      const answerPromise = fetchWithFallback("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
       }).then(r => r.json()).catch(() => null);
 
-      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
+      // منتظر classifier بمون
+      const checkData = await classifyPromise;
+      const cls = (checkData.reply || "IT").trim().toUpperCase().split(" ")[0];
 
-      const rawReply = data.reply.trim();
-
-      // تشخیص tag از اول جواب
-      if (rawReply.startsWith("[OTHER]")) {
+      if (cls === "GREETING") {
+        const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
+        setMessages([...newMessages, { role: "assistant", content: msg }]);
+        if (userId) saveMessage(userId, "assistant", msg);
+        logChat("greeting", "system");
+        setLoading(false);
+        return;
+      }
+      if (cls === "OTHER") {
         const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
         setMessages([...newMessages, { role: "assistant", content: msg }]);
         if (userId) saveMessage(userId, "assistant", msg);
@@ -823,8 +831,10 @@ Then answer normally after the tag.`;
         return;
       }
 
-      // حذف tag از جواب و نمایش
-      const reply = cleanText(rawReply.replace(/^\[IT\]\s*/i, "").replace(/^\[OTHER\]\s*/i, "").trim());
+      // IT بود - منتظر جواب اصلی بمون
+      const data = await answerPromise;
+      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
+      const reply = cleanText(data.reply);
       setMessages([...newMessages, { role: "assistant", content: reply }]);
       if (userId) saveMessage(userId, "assistant", reply);
       logChat(data.source || "ai", "ai");
