@@ -1,20 +1,31 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_URLS = [
   "https://asbajouri-it-assistant-api.hf.space",
   "https://it-assistant-api.onrender.com",
 ];
 
+// Cache برای custom_qa تا هر بار از Supabase نخونیم
+let qaCache = null;
+let qaCacheTime = 0;
+const QA_CACHE_TTL = 5 * 60 * 1000; // 5 دقیقه
+
 async function fetchWithFallback(path, options) {
   for (const base of API_URLS) {
-    try {
-      const res = await fetch(`${base}${path}`, options);
-      if (res.ok) return res;
-    } catch (e) {
-      continue;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) return res;
+        break;
+      } catch (e) {
+        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
+      }
     }
   }
-  throw new Error("هر دو سرور در دسترس نیستند");
+  throw new Error("سرور در دسترس نیست");
 }
 // ADMIN_PASSWORD moved to backend for security
 const SUPABASE_URL = "https://lphczmltctrqmkxktdzo.supabase.co";
@@ -679,10 +690,15 @@ export default function ITAssistant() {
 
   const buildSystemPrompt = async (userText) => {
     try {
-      const [customQA, docsContext] = await Promise.all([
-        sbFetch("custom_qa?order=id"),
-        userText ? searchDocs(userText) : Promise.resolve("")
-      ]);
+      // cache برای custom_qa
+      let customQA = qaCache;
+      if (!customQA || Date.now() - qaCacheTime > QA_CACHE_TTL) {
+        const data = await sbFetch("custom_qa?order=id");
+        customQA = data;
+        qaCache = data;
+        qaCacheTime = Date.now();
+      }
+      const docsContext = userText ? await searchDocs(userText) : "";
       let prompt = BASE_KNOWLEDGE;
       if (customQA.length > 0) {
         const customSection = customQA.map(item => "سوال: " + item.question + "\nجواب: " + item.answer).join("\n\n");
@@ -760,32 +776,11 @@ export default function ITAssistant() {
         return;
       }
 
-      // هر دو درخواست رو همزمان بفرست
-      const recentContext = newMessages.slice(-6, -1)
-        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
-        .join("\n");
-
-      const classifyPromise = fetchWithFallback("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `Classify this message. Context:\n${recentContext}\n\nMessage: "${userText}"\n\nCategories:\n- IT: computers, software, hardware, network, office, excel, windows, domain, technology, programming (python, پایتون, java, sql, etc), databases, APIs, follow-up to IT conversation, questions about this assistant. When in doubt → IT.\n- GREETING: hi, thanks, bye, small talk, ممنون, سلام, خداحافظ, خوبم, باشه, مرسی, ok\n- OTHER: ONLY medical, cooking, sports, politics — completely unrelated to IT\n\nOne word only: IT or GREETING or OTHER` }],
-          system_prompt: "Classifier. One word only: IT or GREETING or OTHER"
-        }),
-      }).then(r => r.json()).catch(() => ({ reply: "IT" }));
-
-      const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
-      const answerPromise = fetchWithFallback("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
-      }).then(r => r.json()).catch(() => null);
-
-      // منتظر classifier بمون
-      const checkData = await classifyPromise;
-      const cls = (checkData.reply || "IT").trim().toUpperCase().split(" ")[0];
-
-      if (cls === "GREETING") {
+      // چک سریع GREETING و OTHER قبل از API
+      const lowerText = userText.trim().toLowerCase();
+      const greetingWords = ["سلام", "ممنون", "مرسی", "خداحافظ", "خوبم", "باشه", "ok", "hi", "hello", "thanks", "bye"];
+      const isGreeting = greetingWords.some(w => lowerText === w || lowerText === w + "!" || lowerText === w + ".");
+      if (isGreeting) {
         const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
         setMessages([...newMessages, { role: "assistant", content: msg }]);
         if (userId) saveMessage(userId, "assistant", msg);
@@ -793,7 +788,33 @@ export default function ITAssistant() {
         setLoading(false);
         return;
       }
-      if (cls === "OTHER") {
+
+      // یک درخواست ترکیبی: هم classify هم جواب
+      const recentContext = newMessages.slice(-4, -1)
+        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 200)}`)
+        .join("\n");
+
+      const combinedSystemPrompt = systemPrompt + `
+
+=== CLASSIFICATION RULE ===
+Before answering, on the VERY FIRST LINE write one of: [IT] or [OTHER]
+- [IT]: computers, software, windows, office, network, domain, excel, outlook, vpn, printer, IT requests
+- [OTHER]: ONLY if completely unrelated to IT (medical, cooking, sports, politics)
+Then answer normally after the tag.`;
+
+      const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
+      const data = await fetchWithFallback("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: apiMsgs, system_prompt: combinedSystemPrompt }),
+      }).then(r => r.json()).catch(() => null);
+
+      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
+
+      const rawReply = data.reply.trim();
+
+      // تشخیص tag از اول جواب
+      if (rawReply.startsWith("[OTHER]")) {
         const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
         setMessages([...newMessages, { role: "assistant", content: msg }]);
         if (userId) saveMessage(userId, "assistant", msg);
@@ -802,10 +823,8 @@ export default function ITAssistant() {
         return;
       }
 
-      // IT بود - منتظر جواب اصلی بمون
-      const data = await answerPromise;
-      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
-      const reply = cleanText(data.reply);
+      // حذف tag از جواب و نمایش
+      const reply = cleanText(rawReply.replace(/^\[IT\]\s*/i, "").replace(/^\[OTHER\]\s*/i, "").trim());
       setMessages([...newMessages, { role: "assistant", content: reply }]);
       if (userId) saveMessage(userId, "assistant", reply);
       logChat(data.source || "ai", "ai");
