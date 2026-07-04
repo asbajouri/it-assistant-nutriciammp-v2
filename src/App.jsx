@@ -680,54 +680,17 @@ export default function ITAssistant() {
     .replace(/[؀-ۿ]+/g, m => m)
     .trim();
 
-  const searchDocs = async (query) => {
-    try {
-      const allDocs = await sbFetch("knowledge_docs?order=created_at.desc");
-      if (!allDocs || allDocs.length === 0) return "";
-      const q = normalizeText(query);
-      const words = q.split(/[\s\-_]+/).filter(w => w.length > 1);
-      if (words.length === 0) return "";
-      const scored = allDocs.map(doc => {
-        const text = normalizeText(doc.title + " " + doc.content);
-        // امتیاز: تعداد تکرار + امتیاز بیشتر برای title
-        const titleText = normalizeText(doc.title);
-        const score = words.reduce((s, w) => {
-          const inTitle = (titleText.split(w).length - 1) * 3;
-          const inContent = text.split(w).length - 1;
-          return s + inTitle + inContent;
-        }, 0);
-        return { ...doc, score };
-      }).filter(d => d.score > 0).sort((a, b) => b.score - a.score);
-      if (scored.length === 0) return "";
-      // برای هر سند، بخش مرتبط رو پیدا کن
-      return scored.slice(0, 2).map(d => {
-        const content = d.content;
-        const titleMatch = "=== سند: " + d.title + " (" + d.category + ") ===\n";
-        // پیدا کردن بهترین بخش سند (chunk که بیشترین کلمات رو داره)
-        if (content.length <= 3000) return titleMatch + content;
-        const chunkSize = 3000;
-        let bestChunk = content.slice(0, chunkSize);
-        let bestScore = 0;
-        for (let i = 0; i < content.length - chunkSize; i += 500) {
-          const chunk = content.slice(i, i + chunkSize);
-          const cs = words.reduce((s, w) => s + (normalizeText(chunk).split(w).length - 1), 0);
-          if (cs > bestScore) { bestScore = cs; bestChunk = chunk; }
-        }
-        return titleMatch + bestChunk;
-      }).join("\n\n");
-    } catch { return ""; }
-  };
-
-  const buildSystemPrompt = async (userText) => {
+    const buildSystemPrompt = async (userText) => {
     try {
       // cache برای custom_qa — هر 5 دقیقه یه بار از Supabase میخونه
       if (!_qaCache || Date.now() - _qaCacheTime > 300000) {
         _qaCache = await sbFetch("custom_qa?order=id");
         _qaCacheTime = Date.now();
       }
+      const allDocs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc");
       const [customQA, docsContext] = await Promise.all([
         Promise.resolve(_qaCache),
-        userText ? searchDocs(userText) : Promise.resolve("")
+        userText && allDocs.length > 0 ? searchDocsWithAI(userText, allDocs) : Promise.resolve("")
       ]);
       let prompt = BASE_KNOWLEDGE;
       if (customQA.length > 0) {
