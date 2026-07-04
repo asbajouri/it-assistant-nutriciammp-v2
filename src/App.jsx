@@ -672,18 +672,25 @@ export default function ITAssistant() {
     sendMessage(question);
   };
 
+  const normalizeText = (t) => t
+    .toLowerCase()
+    .replace(/ي/g, "ی")   // ي → ی
+    .replace(/ك/g, "ک")   // ك → ک
+    .replace(/ى/g, "ی")   // ى → ی
+    .replace(/[؀-ۿ]+/g, m => m)
+    .trim();
+
   const searchDocs = async (query) => {
     try {
       const allDocs = await sbFetch("knowledge_docs?order=created_at.desc");
       if (!allDocs || allDocs.length === 0) return "";
-      const q = query.toLowerCase();
-      // کلمات بیشتر از ۱ حرف (برای فارسی کوتاه مثل "کل"، "دی")
-      const words = q.split(/\s+/).filter(w => w.length > 1);
+      const q = normalizeText(query);
+      const words = q.split(/[\s\-_]+/).filter(w => w.length > 1);
       if (words.length === 0) return "";
       const scored = allDocs.map(doc => {
-        const text = (doc.title + " " + doc.content).toLowerCase();
+        const text = normalizeText(doc.title + " " + doc.content);
         // امتیاز: تعداد تکرار + امتیاز بیشتر برای title
-        const titleText = doc.title.toLowerCase();
+        const titleText = normalizeText(doc.title);
         const score = words.reduce((s, w) => {
           const inTitle = (titleText.split(w).length - 1) * 3;
           const inContent = text.split(w).length - 1;
@@ -703,7 +710,7 @@ export default function ITAssistant() {
         let bestScore = 0;
         for (let i = 0; i < content.length - chunkSize; i += 500) {
           const chunk = content.slice(i, i + chunkSize);
-          const cs = words.reduce((s, w) => s + (chunk.toLowerCase().split(w).length - 1), 0);
+          const cs = words.reduce((s, w) => s + (normalizeText(chunk).split(w).length - 1), 0);
           if (cs > bestScore) { bestScore = cs; bestChunk = chunk; }
         }
         return titleMatch + bestChunk;
