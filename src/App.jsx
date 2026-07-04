@@ -315,15 +315,48 @@ function AdminPanel({ onClose, onDataChanged }) {
     } catch { showMsg("⚠️ خطا در حذف"); }
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setDocContent(ev.target.result);
-      if (!docTitle) setDocTitle(file.name.replace(/\.[^/.]+$/, ""));
-    };
-    reader.readAsText(file, "UTF-8");
+    const ext = file.name.split(".").pop().toLowerCase();
+    // عنوان خودکار از اسم فایل
+    if (!docTitle) setDocTitle(file.name.replace(/\.[^/.]+$/, ""));
+    if (ext === "pdf") {
+      showMsg("⏳ در حال خواندن PDF...");
+      try {
+        // PDF رو به base64 تبدیل کن و از AI بخوای متنش رو استخراج کنه
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+        const base64 = btoa(binary);
+        // استفاده از pdfjslib برای استخراج متن
+        const pdfjsLib = window.pdfjsLib;
+        if (pdfjsLib) {
+          const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
+          let fullText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            fullText += content.items.map(item => item.str).join(" ") + "\n";
+          }
+          setDocContent(fullText);
+          showMsg("✅ PDF خوانده شد");
+        } else {
+          showMsg("⚠️ PDF پشتیبانی نمیشه — لطفاً TXT یا MD آپلود کنید");
+        }
+      } catch {
+        showMsg("⚠️ خطا در خواندن PDF — لطفاً TXT یا MD آپلود کنید");
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setDocContent(ev.target.result);
+        showMsg("✅ فایل خوانده شد");
+      };
+      reader.readAsText(file, "UTF-8");
+    }
+    e.target.value = "";
   };
 
   const [stats, setStats] = useState(null);
@@ -387,7 +420,7 @@ function AdminPanel({ onClose, onDataChanged }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "white", borderRadius: 12, width: "92%", maxWidth: 720, maxHeight: "92vh", overflowY: "auto", direction: "rtl", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
+      <div data-admin-scroll style={{ background: "white", borderRadius: 12, width: "92%", maxWidth: 720, maxHeight: "92vh", overflowY: "auto", direction: "rtl", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: "white", zIndex: 10 }}>
           <h2 style={{ margin: 0, color: "#0078d4", fontSize: 18 }}>⚙️ پنل مدیریت</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#666" }}>✕</button>
@@ -520,9 +553,20 @@ function AdminPanel({ onClose, onDataChanged }) {
           {tab === "docs" && (
             <>
               <div style={{ background: "#f8f9fa", borderRadius: 8, padding: 16, marginBottom: 20 }}>
-                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>{docEditId !== null ? "✏️ ویرایش سند" : "➕ افزودن سند آموزشی"}</h3>
-                <input value={docTitle} onChange={e => setDocTitle(e.target.value)} placeholder="عنوان سند..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}} />
-                <select value={docCategory} onChange={e => setDocCategory(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}}>
+                <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "#333" }}>{docEditId !== null ? "✏️ ویرایش سند" : "➕ افزودن سند آموزشی"}</h3>
+
+                <input
+                  value={docTitle}
+                  onChange={e => setDocTitle(e.target.value)}
+                  placeholder="عنوان سند (فارسی یا انگلیسی)..."
+                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}}
+                />
+
+                <select
+                  value={docCategory}
+                  onChange={e => setDocCategory(e.target.value)}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:14,direction:"rtl",boxSizing:"border-box"}}
+                >
                   <option value="general">عمومی</option>
                   <option value="windows">ویندوز</option>
                   <option value="office">آفیس</option>
@@ -531,34 +575,85 @@ function AdminPanel({ onClose, onDataChanged }) {
                   <option value="domain">دامین</option>
                   <option value="other">سایر</option>
                 </select>
-                <div style={{marginBottom:10}}>
-                  <label style={{fontSize:13,color:"#555",display:"block",marginBottom:6}}>📁 آپلود فایل (MD یا TXT):</label>
-                  <input type="file" accept=".md,.txt" onChange={handleFileUpload} style={{fontSize:13}} />
+
+                <div style={{background:"#fff",border:"2px dashed #0078d4",borderRadius:8,padding:14,marginBottom:10,textAlign:"center"}}>
+                  <div style={{fontSize:13,color:"#555",marginBottom:8}}>📁 آپلود فایل</div>
+                  <input
+                    type="file"
+                    accept=".md,.txt,.pdf"
+                    onChange={handleFileUpload}
+                    style={{fontSize:13,cursor:"pointer"}}
+                  />
+                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF</div>
                 </div>
-                <textarea value={docContent} onChange={e => setDocContent(e.target.value)} placeholder="یا متن را اینجا paste کنید..." rows={8} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:10,fontFamily:"inherit",fontSize:13,direction:"rtl",resize:"vertical",boxSizing:"border-box"}} />
-                <div style={{fontSize:12,color:"#999",marginBottom:10}}>📊 {docContent.length.toLocaleString()} کاراکتر</div>
+
+                <div style={{position:"relative"}}>
+                  <textarea
+                    value={docContent}
+                    onChange={e => setDocContent(e.target.value)}
+                    placeholder="یا متن را اینجا paste کنید..."
+                    rows={8}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",marginBottom:4,fontFamily:"inherit",fontSize:13,direction:"rtl",resize:"vertical",boxSizing:"border-box"}}
+                  />
+                </div>
+                <div style={{fontSize:12,color:"#999",marginBottom:10,textAlign:"right"}}>
+                  📊 {docContent.length.toLocaleString()} کاراکتر
+                  {docContent.length > 10000 && <span style={{color:"#e67e22",marginRight:8}}>⚠️ فایل بزرگ — فقط ۳۰۰۰ کاراکتر اول به AI ارسال می‌شه</span>}
+                </div>
+
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveDoc} disabled={loading} style={{padding:"9px 20px",background:"#0078d4",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>
-                    {loading ? "..." : docEditId !== null ? "ویرایش" : "افزودن"}
+                  <button
+                    onClick={saveDoc}
+                    disabled={loading}
+                    style={{padding:"9px 20px",background:"#0078d4",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14,opacity:loading?0.6:1}}
+                  >
+                    {loading ? "در حال ذخیره..." : docEditId !== null ? "✅ ذخیره ویرایش" : "✅ افزودن سند"}
                   </button>
-                  {docEditId !== null && <button onClick={() => { setDocEditId(null); setDocTitle(""); setDocContent(""); setDocCategory("general"); }} style={{padding:"9px 20px",background:"#6c757d",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>انصراف</button>}
+                  {docEditId !== null && (
+                    <button
+                      onClick={() => { setDocEditId(null); setDocTitle(""); setDocContent(""); setDocCategory("general"); }}
+                      style={{padding:"9px 20px",background:"#6c757d",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:14}}
+                    >
+                      ❌ انصراف
+                    </button>
+                  )}
                 </div>
               </div>
-              <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>اسناد ذخیره شده ({docs.length})</h3>
-              {docs.length === 0 ? <p style={{color:"#999",textAlign:"center",padding:30}}>هنوز سندی اضافه نشده</p> : docs.map((doc) => (
-                <div key={doc.id} style={{border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 14px",marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+
+              <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#333" }}>📚 اسناد ذخیره شده ({docs.length})</h3>
+              {docs.length === 0 ? (
+                <p style={{color:"#999",textAlign:"center",padding:30}}>هنوز سندی اضافه نشده</p>
+              ) : docs.map((doc) => (
+                <div key={doc.id} style={{border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 14px",marginBottom:10,background:"#fff"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={() => { setDocTitle(doc.title); setDocContent(doc.content); setDocCategory(doc.category||"general"); setDocEditId(doc.id); }} style={{padding:"6px 14px",background:"#ffc107",color:"#333",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>ویرایش</button>
-                      <button onClick={() => deleteDoc(doc.id)} style={{padding:"6px 14px",background:"#dc3545",color:"white",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>حذف</button>
+                      <button
+                        onClick={() => {
+                          setDocTitle(doc.title);
+                          setDocContent(doc.content);
+                          setDocCategory(doc.category || "general");
+                          setDocEditId(doc.id);
+                          // اسکرول به بالا
+                          document.querySelector("[data-admin-scroll]")?.scrollTo({top:0,behavior:"smooth"});
+                        }}
+                        style={{padding:"6px 14px",background:"#ffc107",color:"#333",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}
+                      >
+                        ✏️ ویرایش
+                      </button>
+                      <button
+                        onClick={() => deleteDoc(doc.id)}
+                        style={{padding:"6px 14px",background:"#dc3545",color:"white",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}
+                      >
+                        🗑️ حذف
+                      </button>
                     </div>
-                    <div>
-                      <span style={{fontWeight:600,color:"#0078d4",fontSize:14}}>📄 {doc.title}</span>
-                      <span style={{marginRight:8,fontSize:11,background:"#e8f4fd",color:"#0078d4",padding:"2px 8px",borderRadius:10}}>{doc.category||"general"}</span>
+                    <div style={{textAlign:"right"}}>
+                      <span style={{fontWeight:700,color:"#0078d4",fontSize:14}}>📄 {doc.title}</span>
+                      <span style={{marginRight:8,fontSize:11,background:"#e8f4fd",color:"#0078d4",padding:"2px 8px",borderRadius:10}}>{doc.category || "general"}</span>
                     </div>
                   </div>
-                  <div style={{color:"#666",fontSize:12,textAlign:"right"}}>{doc.content.slice(0,150)}...</div>
-                  <div style={{color:"#999",fontSize:11,marginTop:4,textAlign:"right"}}>{doc.content.length.toLocaleString()} کاراکتر</div>
+                  <div style={{color:"#666",fontSize:12,textAlign:"right",marginBottom:4}}>{(doc.content || "").slice(0,150)}...</div>
+                  <div style={{color:"#aaa",fontSize:11,textAlign:"right"}}>{(doc.content || "").length.toLocaleString()} کاراکتر · {new Date(doc.created_at).toLocaleDateString("fa-IR")}</div>
                 </div>
               ))}
             </>
@@ -679,6 +774,49 @@ export default function ITAssistant() {
     .replace(/ى/g, "ی")   // ى → ی
     .replace(/[؀-ۿ]+/g, m => m)
     .trim();
+
+  // جستجوی هوشمند در اسناد — بر اساس عنوان و محتوا
+  const searchDocsWithAI = (userText, docs) => {
+    if (!docs || docs.length === 0) return "";
+    const q = normalizeText(userText);
+    const words = q.split(/\s+/).filter(w => w.length > 1);
+
+    const scored = docs.map(doc => {
+      const titleNorm = normalizeText(doc.title || "");
+      const catNorm = normalizeText(doc.category || "");
+      const contentNorm = normalizeText((doc.content || "").slice(0, 500));
+      let score = 0;
+      for (const w of words) {
+        if (titleNorm.includes(w)) score += 10; // عنوان مهم‌ترینه
+        if (catNorm.includes(w)) score += 5;
+        if (contentNorm.includes(w)) score += 2;
+      }
+      return { doc, score };
+    }).sort((a, b) => b.score - a.score);
+
+    // اسناد با score بالا رو کامل بفرست، بقیه رو با عنوان معرفی کن
+    const topDocs = scored.filter(x => x.score > 0).slice(0, 3);
+    const otherDocs = scored.filter(x => x.score === 0);
+
+    let result = "";
+    if (topDocs.length > 0) {
+      result = topDocs.map(x =>
+        "=== سند مرتبط: " + x.doc.title + " [دسته: " + (x.doc.category || "general") + "] ===\n" + x.doc.content.slice(0, 3000)
+      ).join("\n\n");
+    } else {
+      // هیچ match‌ای نبود — همه اسناد رو با عنوان معرفی کن
+      result = "=== اسناد آموزشی موجود ===\n" + docs.map(d =>
+        "📄 " + d.title + " [" + (d.category || "general") + "]:\n" + d.content.slice(0, 1000)
+      ).join("\n\n---\n\n");
+    }
+
+    // اسناد دیگه رو با عنوان اضافه کن
+    if (otherDocs.length > 0 && topDocs.length > 0) {
+      result += "\n\n=== سایر اسناد موجود ===\n" + otherDocs.map(x => "📄 " + x.doc.title).join("، ");
+    }
+
+    return result;
+  };
 
     const buildSystemPrompt = async (userText) => {
     try {
