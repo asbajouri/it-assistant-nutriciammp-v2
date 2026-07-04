@@ -677,16 +677,37 @@ export default function ITAssistant() {
       const allDocs = await sbFetch("knowledge_docs?order=created_at.desc");
       if (!allDocs || allDocs.length === 0) return "";
       const q = query.toLowerCase();
-      const words = q.split(" ").filter(w => w.length > 2);
+      // کلمات بیشتر از ۱ حرف (برای فارسی کوتاه مثل "کل"، "دی")
+      const words = q.split(/\s+/).filter(w => w.length > 1);
+      if (words.length === 0) return "";
       const scored = allDocs.map(doc => {
         const text = (doc.title + " " + doc.content).toLowerCase();
-        const score = words.reduce((s, w) => s + (text.split(w).length - 1), 0);
+        // امتیاز: تعداد تکرار + امتیاز بیشتر برای title
+        const titleText = doc.title.toLowerCase();
+        const score = words.reduce((s, w) => {
+          const inTitle = (titleText.split(w).length - 1) * 3;
+          const inContent = text.split(w).length - 1;
+          return s + inTitle + inContent;
+        }, 0);
         return { ...doc, score };
       }).filter(d => d.score > 0).sort((a, b) => b.score - a.score);
       if (scored.length === 0) return "";
-      return scored.slice(0, 2).map(d =>
-        "=== سند: " + d.title + " (" + d.category + ") ===\n" + d.content.slice(0, 2000)
-      ).join("\n\n");
+      // برای هر سند، بخش مرتبط رو پیدا کن
+      return scored.slice(0, 2).map(d => {
+        const content = d.content;
+        const titleMatch = "=== سند: " + d.title + " (" + d.category + ") ===\n";
+        // پیدا کردن بهترین بخش سند (chunk که بیشترین کلمات رو داره)
+        if (content.length <= 3000) return titleMatch + content;
+        const chunkSize = 3000;
+        let bestChunk = content.slice(0, chunkSize);
+        let bestScore = 0;
+        for (let i = 0; i < content.length - chunkSize; i += 500) {
+          const chunk = content.slice(i, i + chunkSize);
+          const cs = words.reduce((s, w) => s + (chunk.toLowerCase().split(w).length - 1), 0);
+          if (cs > bestScore) { bestScore = cs; bestChunk = chunk; }
+        }
+        return titleMatch + bestChunk;
+      }).join("\n\n");
     } catch { return ""; }
   };
 
