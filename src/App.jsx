@@ -46,7 +46,13 @@ const sbFetch = async (path, options = {}) => {
 
 const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستی که برای پشتیبانی کارکنان طراحی شده‌ای. به تمام سوالات مرتبط با IT، نرم‌افزار، سخت‌افزار، شبکه، برنامه‌نویسی و فناوری جواب بده — حتی اگه نرم‌افزار خاص شرکت نباشه.
 
-قانون مهم: به زبان سوال جواب بده. اگه فارسی پرسیدن فارسی، اگه انگلیسی پرسیدن انگلیسی جواب بده. اگر سوال فارسی بود فارسی جواب بده، اگر انگلیسی بود انگلیسی جواب بده. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی، ویتنامی یا هر زبان دیگری استفاده نکن. کلمات انگلیسی تخصصی را فقط با حروف استاندارد انگلیسی (a-z, A-Z) بنویس. از هیچ حرف لاتین با علامت‌گذاری (مثل ã، ề، ā) استفاده نکن.
+قانون ۱ — زبان: به زبان سوال جواب بده. فارسی→فارسی، انگلیسی→انگلیسی. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی یا ویتنامی استفاده نکن.
+
+قانون ۲ — حوزه تخصصی: تو فقط در حوزه IT و فناوری اطلاعات پاسخ میدی. اگر سوال کاملاً خارج از IT بود (مثل سنجاق قفلی، آشپزی، پزشکی، ورزش، سیاست)، فقط بگو: «این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.»
+
+قانون ۳ — پیوستگی مکالمه: اگر پیام کوتاه یا مبهم بود (مثل «وصلم»، «بله»، «نه»، «ممنون»)، با توجه به تاریخچه مکالمه جواب بده — اگر مکالمه درباره IT بود ادامه بده، اگر احوال‌پرسی بود مودبانه پاسخ بده.
+
+قانون ۴ — احوال‌پرسی: اگر صرفاً احوال‌پرسی یا تشکر بود، مودبانه جواب بده و اعلام آمادگی برای سوالات IT کن.
 
 دامین شرکت danonemulti.net است. تمام کاربران عضو این دامین هستند.
 جواب‌هایت باید واضح، گام به گام و عملی باشند.
@@ -772,62 +778,15 @@ export default function ITAssistant() {
         return;
       }
 
-      // هر دو درخواست رو همزمان بفرست
-      const recentContext = newMessages.slice(-6, -1)
-        .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}`)
-        .join("\n");
-
-      const classifyPromise = fetchWithFallback("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `Classify this message as IT, GREETING, or OTHER.
-
-Message: "${userText}"
-${recentContext ? `Recent conversation:\n${recentContext}` : ""}
-
-IT examples: آفیس اکتیو نیست، ویندوز فعال نشده، اینترنت وصل نمیشه، پرینتر کار نمیکنه، اکانتم لاک شده، ایمیل باز نمیشه، out of office، پسورد فراموش کردم، اکسل باز نمیشه، VPN وصل نیست، نرم‌افزار نصب کن، office, windows, excel, network, software, hardware, printer, domain, VPN, IT, activate, install, error, crash, AI, cloud, API, database, programming, cybersecurity, ERP, accounting software
-GREETING examples: سلام، ممنون، مرسی، خداحافظ، hi, thanks, bye — ONLY if no tech question follows
-OTHER examples: سنجاق قفلی، سرماخوردم چی بخورم، آشپزی، ورزش، هوا
-
-If the conversation context is about IT, classify as IT even if the message is short.
-Reply with ONE word only: IT or GREETING or OTHER` }],
-          system_prompt: "IT topic classifier. Reply with exactly one word: IT, GREETING, or OTHER."
-        }),
-      }).then(r => r.json()).catch(() => ({ reply: "IT" }));
-
+      // فقط یه درخواست — AI خودش تشخیص میده و جواب میده
       const apiMsgs = newMessages.map(m => ({ role: m.role, content: m.content }));
-      const answerPromise = fetchWithFallback("/chat", {
+      const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
-      }).then(r => r.json()).catch(() => null);
-
-      // منتظر classifier بمون
-      const checkData = await classifyPromise;
-      const rawCls = (checkData.reply || "IT").trim().toUpperCase();
-      const cls = rawCls.startsWith("GREETING") ? "GREETING" : rawCls.startsWith("OTHER") ? "OTHER" : "IT";
-
-      if (cls === "GREETING") {
-        const msg = "خواهش می‌کنم! 😊 اگه سوال IT داشتید در خدمتم.";
-        setMessages([...newMessages, { role: "assistant", content: msg }]);
-        if (userId) saveMessage(userId, "assistant", msg);
-        logChat("greeting", "system");
-        setLoading(false);
-        return;
-      }
-      if (cls === "OTHER") {
-        const msg = "این سوال خارج از حوزه تخصصی من است. من فقط درباره ویندوز، نرم‌افزارها، آفیس، شبکه و درخواست‌های IT پشتیبانی می‌کنم.";
-        setMessages([...newMessages, { role: "assistant", content: msg }]);
-        if (userId) saveMessage(userId, "assistant", msg);
-        logChat("out_of_scope", "system");
-        setLoading(false);
-        return;
-      }
-
-      // IT بود - منتظر جواب اصلی بمون
-      const data = await answerPromise;
-      if (!data || !data.reply) throw new Error(data?.error || "خطا از سرور");
+      });
+      const data = await res.json();
+            if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
       const reply = cleanText(data.reply);
       setMessages([...newMessages, { role: "assistant", content: reply }]);
       if (userId) saveMessage(userId, "assistant", reply);
