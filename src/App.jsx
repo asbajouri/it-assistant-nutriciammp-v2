@@ -781,8 +781,18 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: `Classify: "${userText}"\n\n- IT: computers, software, hardware, network, office, excel, windows, linux, programming, AI models, cloud, APIs, databases, cybersecurity, printers, phones, domain, VPN, IT requests, tech tools\n- GREETING: purely greeting/thanks/bye (سلام, ممنون, مرسی, hi, thanks, bye, خوبم, باشه)\n- OTHER: non-tech topics (medical, cooking, sports, weather, animals, food, clothing, general knowledge unrelated to technology)\n\nOne word only: IT or GREETING or OTHER` }],
-          system_prompt: "You are an IT topic classifier. Reply with exactly one word: IT, GREETING, or OTHER."
+          messages: [{ role: "user", content: `Classify this message as IT, GREETING, or OTHER.
+
+Message: "${userText}"
+${recentContext ? `Recent conversation:\n${recentContext}` : ""}
+
+IT examples: آفیس اکتیو نیست، ویندوز فعال نشده، اینترنت وصل نمیشه، پرینتر کار نمیکنه، اکانتم لاک شده، ایمیل باز نمیشه، out of office، پسورد فراموش کردم، اکسل باز نمیشه، VPN وصل نیست، نرم‌افزار نصب کن، office, windows, excel, network, software, hardware, printer, domain, VPN, IT, activate, install, error, crash, AI, cloud, API, database, programming, cybersecurity, ERP, accounting software
+GREETING examples: سلام، ممنون، مرسی، خداحافظ، hi, thanks, bye — ONLY if no tech question follows
+OTHER examples: سنجاق قفلی، سرماخوردم چی بخورم، آشپزی، ورزش، هوا
+
+If the conversation context is about IT, classify as IT even if the message is short.
+Reply with ONE word only: IT or GREETING or OTHER` }],
+          system_prompt: "IT topic classifier. Reply with exactly one word: IT, GREETING, or OTHER."
         }),
       }).then(r => r.json()).catch(() => ({ reply: "IT" }));
 
