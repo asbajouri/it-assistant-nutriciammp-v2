@@ -37,9 +37,17 @@ const sbHeaders = {
 const sbFetch = async (path, options = {}) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...options,
-    headers: { ...sbHeaders, ...(options.headers || {}) }
+    headers: {
+      ...sbHeaders,
+      ...(options.headers || {}),
+      // برای DELETE باید Prefer header باشه
+      ...(options.method === "DELETE" ? { "Prefer": "return=representation" } : {})
+    }
   });
-  if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Supabase error: ${res.status} — ${errText}`);
+  }
   const text = await res.text();
   return text ? JSON.parse(text) : [];
 };
@@ -310,9 +318,12 @@ function AdminPanel({ onClose, onDataChanged }) {
     if (!window.confirm("این سند حذف شود؟")) return;
     try {
       await sbFetch(`knowledge_docs?id=eq.${id}`, { method: "DELETE" });
-      await loadDocs();
-      showMsg("✅ حذف شد");
-    } catch { showMsg("⚠️ خطا در حذف"); }
+      setDocs(prev => prev.filter(d => d.id !== id));
+      showMsg("✅ سند حذف شد");
+    } catch (err) {
+      console.error("Delete error:", err);
+      showMsg("⚠️ خطا در حذف: " + err.message);
+    }
   };
 
   const handleFileUpload = async (e) => {
@@ -825,7 +836,7 @@ export default function ITAssistant() {
         _qaCache = await sbFetch("custom_qa?order=id");
         _qaCacheTime = Date.now();
       }
-      const allDocs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc");
+      const allDocs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
       const [customQA, docsContext] = await Promise.all([
         Promise.resolve(_qaCache),
         userText && allDocs.length > 0 ? searchDocsWithAI(userText, allDocs) : Promise.resolve("")
