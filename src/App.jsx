@@ -918,11 +918,23 @@ export default function ITAssistant() {
         return;
       }
 
-      // آخرین 6 پیام رو بفرست — context کافی، بدون حواس‌پرتی
       // پیام کوتاه → context بیشتر بفرست
-      const isShortMsg = userText.trim().split(/\s+/).length <= 4;
-      const contextCount = isShortMsg ? 12 : 6;
+      const wordCount = userText.trim().split(/\s+/).length;
+      const isShortMsg = wordCount <= 3;
+      const contextCount = isShortMsg ? 14 : 6;
       const apiMsgs = newMessages.slice(-contextCount).map(m => ({ role: m.role, content: m.content }));
+
+      // اگه پیام خیلی کوتاه بود و هیچ context قبلی IT نداشت، از کاربر بخواه سوالش رو کامل کنه
+      const ambiguousWords = ["no", "yes", "آره", "نه", "بله", "اوکی", "ok", "okay", "ها", "نه نه", "یا"];
+      const isAmbiguous = ambiguousWords.includes(userText.trim().toLowerCase());
+      const hasPrevContext = newMessages.slice(-6, -1).some(m => m.role === "assistant" && m.content.length > 50);
+      if (isAmbiguous && !hasPrevContext) {
+        const msg = "لطفاً سوال خود را کامل‌تر بنویسید تا بتوانم بهتر کمک کنم. 😊";
+        setMessages([...newMessages, { role: "assistant", content: msg }]);
+        if (userId) saveMessage(userId, "assistant", msg);
+        setLoading(false);
+        return;
+      }
       const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
