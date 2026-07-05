@@ -919,7 +919,10 @@ export default function ITAssistant() {
       }
 
       // آخرین 6 پیام رو بفرست — context کافی، بدون حواس‌پرتی
-      const apiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      // پیام کوتاه → context بیشتر بفرست
+      const isShortMsg = userText.trim().split(/\s+/).length <= 4;
+      const contextCount = isShortMsg ? 12 : 6;
+      const apiMsgs = newMessages.slice(-contextCount).map(m => ({ role: m.role, content: m.content }));
       const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
