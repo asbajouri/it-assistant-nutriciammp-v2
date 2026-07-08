@@ -925,7 +925,7 @@ export default function ITAssistant() {
       const apiMsgs = newMessages.slice(-contextCount).map(m => ({ role: m.role, content: m.content }));
 
       // اگه پیام خیلی کوتاه بود و هیچ context قبلی IT نداشت، از کاربر بخواه سوالش رو کامل کنه
-      const ambiguousWords = ["no", "yes", "آره", "نه", "بله", "اوکی", "ok", "okay", "ها", "نه نه", "یا"];
+      const ambiguousWords = ["no", "yes", "آره", "نه", "خیر", "بله", "اوکی", "ok", "okay", "ها", "نه نه", "یا", "آوکی", "ممنون", "مرسی", "باشه", "چشم", "اوکیه", "یس", "نوپ", "nope", "yep", "yup"];
       const isAmbiguous = ambiguousWords.includes(userText.trim().toLowerCase());
       const hasPrevContext = newMessages.slice(-6, -1).some(m => m.role === "assistant" && m.content.length > 50);
       if (isAmbiguous && !hasPrevContext) {
