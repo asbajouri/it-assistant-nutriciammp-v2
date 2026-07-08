@@ -935,10 +935,23 @@ export default function ITAssistant() {
         setLoading(false);
         return;
       }
+
+      // اگه پیام ambiguous بود و context داشت، به AI بگو این جواب سوال قبلیه
+      let finalMessages = apiMsgs;
+      if (isAmbiguous && hasPrevContext) {
+        const lastAssistantMsg = [...newMessages].slice(0, -1).reverse().find(m => m.role === "assistant");
+        if (lastAssistantMsg && lastAssistantMsg.content.includes("؟")) {
+          // آخرین پیام assistant سوال داشته — یه hint اضافه کن
+          finalMessages = [
+            ...apiMsgs.slice(0, -1),
+            { role: "user", content: `[پاسخ به سوال قبلی شما]: ${userText}` }
+          ];
+        }
+      }
       const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMsgs, system_prompt: systemPrompt }),
+        body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt }),
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
