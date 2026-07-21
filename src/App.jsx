@@ -23,6 +23,26 @@ async function fetchWithFallback(path, options) {
   }
   throw new Error("هر دو سرور در دسترس نیستند");
 }
+// === آب و هوا — تشخیص سوال و استخراج نام شهر ===
+const IRAN_CITIES = ["تهران", "مشهد", "شاندیز", "اصفهان", "شیراز", "تبریز", "اهواز", "کرج", "قم", "کرمان", "یزد", "رشت", "همدان", "ارومیه", "زاهدان", "ساری", "بندرعباس", "کرمانشاه", "اراک", "زنجان", "قزوین", "گرگان", "سنندج", "خرم‌آباد", "خرم آباد", "یاسوج", "بجنورد", "بیرجند", "ایلام", "بوشهر", "دماوند", "توس"];
+
+const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weather|temperature/i.test(text);
+
+const extractCity = (text) => {
+  for (const c of IRAN_CITIES) {
+    if (text.includes(c)) return c;
+  }
+  const match = text.match(/(?:هوای|دمای|آب.?و.?هوای|weather (?:in|of)|temperature (?:in|of))\s+([^\s؟?.,!،]+(?:\s+[^\s؟?.,!،]+)?)/i);
+  return match ? match[1].trim() : null;
+};
+
+const WEATHER_ICONS = { "01d": "☀️", "01n": "🌙", "02d": "🌤️", "02n": "☁️", "03d": "☁️", "03n": "☁️", "04d": "☁️", "04n": "☁️", "09d": "🌧️", "09n": "🌧️", "10d": "🌦️", "10n": "🌧️", "11d": "⛈️", "11n": "⛈️", "13d": "❄️", "13n": "❄️", "50d": "🌫️", "50n": "🌫️" };
+
+const formatWeatherReply = (data) => {
+  const emoji = WEATHER_ICONS[data.icon] || "🌡️";
+  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h`;
+};
+
 // ADMIN_PASSWORD moved to backend for security
 const SUPABASE_URL = "https://lphczmltctrqmkxktdzo.supabase.co";
 const SUPABASE_KEY = "sb_publishable_4zAcw2YmjJkFnpgZI-ZzLQ_EXznYJs_";
@@ -61,6 +81,8 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 قانون ۳ — پیوستگی مکالمه: همیشه تاریخچه مکالمه رو در نظر بگیر. اگر پیام کاربر کوتاه یا مبهم بود (مثل بله، نه، آره، نه، yes، no، ok، ممنون، باشه، وصلم)، معنی‌اش رو از پیام‌های قبلی بفهم و ادامه منطقی مکالمه رو بده. هرگز پیام کوتاه رو بدون توجه به context قبلی جواب نده.
 
 قانون ۴ — احوال‌پرسی: اگر صرفاً احوال‌پرسی یا تشکر بود، مودبانه جواب بده و اعلام آمادگی برای سوالات IT کن.
+
+قانون ۵ — آب و هوا: سیستم به‌صورت خودکار سوالات آب و هوای شهرهای مختلف رو با داده واقعی از OpenWeatherMap جواب می‌ده (این بخش قبل از رسیدن به تو انجام می‌شه). اگه پیامی به دستت رسید که درباره آب و هواست ولی نتونستی داده واقعی بهش بدی، از کاربر بخواه اسم شهر رو واضح‌تر یا با نام لاتین بنویسه.
 
 دامین شرکت danonemulti.net است. تمام کاربران عضو این دامین هستند.
 جواب‌هایت باید واضح، گام به گام و عملی باشند.
@@ -905,6 +927,28 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+
+    // اگه سوال درباره آب و هوا بود، مستقیم از OpenWeatherMap جواب بده (بدون AI)
+    if (isWeatherQuery(userText)) {
+      const city = extractCity(userText);
+      if (city) {
+        try {
+          const res = await fetchWithFallback(`/weather?city=${encodeURIComponent(city)}`, { method: "GET" });
+          const data = await res.json();
+          if (data.success) {
+            const reply = formatWeatherReply(data);
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("openweathermap", "weather");
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // اگه weather API در دسترس نبود، بذار جریان عادی AI ادامه پیدا کنه
+        }
+      }
+    }
+
     try {
       const { prompt: systemPrompt, qaList } = await buildSystemPrompt(userText);
 
