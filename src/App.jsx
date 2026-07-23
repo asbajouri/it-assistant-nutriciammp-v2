@@ -348,6 +348,53 @@ function AdminPanel({ onClose, onDataChanged }) {
     }
   };
 
+  // تشخیص و مسطح‌سازی جدول‌های چندبلاکی مثل لیست تلفن داخلی (اسم/داخلی که چند بار پهلوی هم تکرار شده)
+  // خروجی: آرایه‌ای از خط‌های "اسم — داخلی: شماره — ..." یا null اگه فرمت دایرکتوری تشخیص داده نشد
+  const parseDirectoryLikeSheet = (rows) => {
+    const isExtCell = (v) => {
+      if (typeof v === "number") return true;
+      if (typeof v === "string") {
+        const t = v.trim();
+        return /^\d{1,6}(\s*(و|,)\s*\d{1,6})*$/.test(t);
+      }
+      return false;
+    };
+
+    // ستون‌هایی که مقدار شماره‌مانند دارن رو پیدا کن، و فاصله بین ستون‌های عددی متوالی رو داخل هر ردیف حساب کن
+    // (نه در کل شیت — چون یکی دو ردیف نامنظم نباید الگوی غالب رو خراب کنه)
+    const gapCounts = {};
+    rows.forEach((row) => {
+      const numIdx = [];
+      row.forEach((cell, idx) => { if (isExtCell(cell) && String(cell).trim() !== "") numIdx.push(idx); });
+      for (let i = 1; i < numIdx.length; i++) {
+        const gap = numIdx[i] - numIdx[i - 1];
+        if (gap > 0) gapCounts[gap] = (gapCounts[gap] || 0) + 1;
+      }
+    });
+    const sortedGaps = Object.entries(gapCounts).sort((a, b) => b[1] - a[1]);
+    if (!sortedGaps.length) return null;
+    const blockWidth = Number(sortedGaps[0][0]);
+    if (blockWidth < 2) return null;
+
+    const entries = [];
+    rows.forEach((row) => {
+      for (let start = 0; start + 1 < row.length; start += blockWidth) {
+        const name = row[start];
+        const ext = row[start + 1];
+        if (typeof name === "string" && name.trim() && isExtCell(ext) && String(ext).trim() !== "") {
+          const extras = row.slice(start + 2, start + blockWidth)
+            .map((c) => (c === undefined || c === null ? "" : String(c).trim()))
+            .filter(Boolean);
+          entries.push(`${name.trim()} — داخلی: ${String(ext).trim()}${extras.length ? " — " + extras.join(" — ") : ""}`);
+        }
+      }
+    });
+
+    // اگه تعداد ردیف‌های معتبر خیلی کم بود، این احتمالاً یه لیست تلفن نیست — بذار fallback عادی اجرا بشه
+    if (entries.length < Math.max(3, rows.length * 0.3)) return null;
+    return entries;
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -402,8 +449,15 @@ function AdminPanel({ onClose, onDataChanged }) {
           const wb = XLSX.read(arrayBuffer, { type: "array" });
           let fullText = "";
           wb.SheetNames.forEach(name => {
-            const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
-            fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+            const sheet = wb.Sheets[name];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+            const directoryEntries = parseDirectoryLikeSheet(rows);
+            if (directoryEntries) {
+              fullText += `=== شیت: ${name} (لیست تلفن/داخلی) ===\n${directoryEntries.join("\n")}\n\n`;
+            } else {
+              const csv = XLSX.utils.sheet_to_csv(sheet);
+              fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+            }
           });
           setDocContent(fullText.trim());
           showMsg("✅ فایل Excel خوانده شد");
