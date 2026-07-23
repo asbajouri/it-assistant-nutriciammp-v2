@@ -357,13 +357,8 @@ function AdminPanel({ onClose, onDataChanged }) {
     if (ext === "pdf") {
       showMsg("⏳ در حال خواندن PDF...");
       try {
-        // PDF رو به base64 تبدیل کن و از AI بخوای متنش رو استخراج کنه
         const arrayBuffer = await file.arrayBuffer();
         const uint8 = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
-        const base64 = btoa(binary);
-        // استفاده از pdfjslib برای استخراج متن
         const pdfjsLib = window.pdfjsLib;
         if (pdfjsLib) {
           const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
@@ -376,10 +371,47 @@ function AdminPanel({ onClose, onDataChanged }) {
           setDocContent(fullText);
           showMsg("✅ PDF خوانده شد");
         } else {
-          showMsg("⚠️ PDF پشتیبانی نمیشه — لطفاً TXT یا MD آپلود کنید");
+          showMsg("⚠️ کتابخانه PDF هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
         }
       } catch {
-        showMsg("⚠️ خطا در خواندن PDF — لطفاً TXT یا MD آپلود کنید");
+        showMsg("⚠️ خطا در خواندن PDF");
+      }
+    } else if (ext === "docx") {
+      showMsg("⏳ در حال خواندن Word...");
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const mammoth = window.mammoth;
+        if (mammoth) {
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          setDocContent(result.value);
+          showMsg("✅ فایل Word خوانده شد");
+        } else {
+          showMsg("⚠️ کتابخانه Word هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
+        }
+      } catch {
+        showMsg("⚠️ خطا در خواندن فایل Word");
+      }
+    } else if (ext === "doc") {
+      showMsg("⚠️ فرمت قدیمی .doc پشتیبانی نمیشه — فایل رو با Word به .docx تبدیل کن");
+    } else if (ext === "xlsx" || ext === "xls") {
+      showMsg("⏳ در حال خواندن Excel...");
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const XLSX = window.XLSX;
+        if (XLSX) {
+          const wb = XLSX.read(arrayBuffer, { type: "array" });
+          let fullText = "";
+          wb.SheetNames.forEach(name => {
+            const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
+            fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+          });
+          setDocContent(fullText.trim());
+          showMsg("✅ فایل Excel خوانده شد");
+        } else {
+          showMsg("⚠️ کتابخانه Excel هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
+        }
+      } catch {
+        showMsg("⚠️ خطا در خواندن فایل Excel");
       }
     } else {
       const reader = new FileReader();
@@ -613,11 +645,11 @@ function AdminPanel({ onClose, onDataChanged }) {
                   <div style={{fontSize:13,color:"#555",marginBottom:8}}>📁 آپلود فایل</div>
                   <input
                     type="file"
-                    accept=".md,.txt,.pdf"
+                    accept=".md,.txt,.pdf,.docx,.xlsx,.xls"
                     onChange={handleFileUpload}
                     style={{fontSize:13,cursor:"pointer"}}
                   />
-                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF</div>
+                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF، Word (.docx)، Excel (.xlsx/.xls)</div>
                 </div>
 
                 <div style={{position:"relative"}}>
