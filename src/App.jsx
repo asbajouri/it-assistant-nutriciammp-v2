@@ -10,11 +10,12 @@ let _qaCache = null;
 let _qaCacheTime = 0;
 
 async function fetchWithFallback(path, options) {
+  const { timeoutMs, ...fetchOptions } = options || {};
   for (const base of API_URLS) {
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 12000);
-      const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+      const t = setTimeout(() => controller.abort(), timeoutMs || 12000);
+      const res = await fetch(`${base}${path}`, { ...fetchOptions, signal: controller.signal });
       clearTimeout(t);
       if (res.ok) return res;
     } catch (e) {
@@ -401,7 +402,35 @@ function AdminPanel({ onClose, onDataChanged }) {
     const ext = file.name.split(".").pop().toLowerCase();
     // عنوان خودکار از اسم فایل
     if (!docTitle) setDocTitle(file.name.replace(/\.[^/.]+$/, ""));
-    if (ext === "pdf") {
+    if (["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      showMsg("⏳ در حال خواندن تصویر با هوش مصنوعی... (ممکنه چند ثانیه طول بکشه)");
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const [header, base64Data] = dataUrl.split(",");
+        const mimeMatch = header.match(/data:(.*?);base64/);
+        const mimeType = mimeMatch ? mimeMatch[1] : (file.type || "image/jpeg");
+        const res = await fetchWithFallback("/extract-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_base64: base64Data, mime_type: mimeType }),
+          timeoutMs: 45000,
+        });
+        const data = await res.json();
+        if (data.success) {
+          setDocContent(data.text);
+          showMsg("✅ محتوای تصویر خونده شد — لطفاً یه نگاه بنداز و مطمئن شو درست بوده");
+        } else {
+          showMsg("⚠️ خطا در خواندن تصویر: " + (data.error || "نامشخص"));
+        }
+      } catch {
+        showMsg("⚠️ خطا در ارتباط با سرور برای خواندن تصویر");
+      }
+    } else if (ext === "pdf") {
       showMsg("⏳ در حال خواندن PDF...");
       try {
         const arrayBuffer = await file.arrayBuffer();
@@ -699,11 +728,11 @@ function AdminPanel({ onClose, onDataChanged }) {
                   <div style={{fontSize:13,color:"#555",marginBottom:8}}>📁 آپلود فایل</div>
                   <input
                     type="file"
-                    accept=".md,.txt,.pdf,.docx,.xlsx,.xls"
+                    accept=".md,.txt,.pdf,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.webp"
                     onChange={handleFileUpload}
                     style={{fontSize:13,cursor:"pointer"}}
                   />
-                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF، Word (.docx)، Excel (.xlsx/.xls)</div>
+                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF، Word (.docx)، Excel (.xlsx/.xls)، عکس (JPG/PNG/WebP)</div>
                 </div>
 
                 <div style={{position:"relative"}}>
