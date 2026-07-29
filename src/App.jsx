@@ -79,6 +79,8 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 
 قانون ۲ — حوزه تخصصی: حوزه تو بسیار گسترده‌ست — هر چیزی مرتبط با فناوری، نرم‌افزار، سخت‌افزار، شبکه، هوش مصنوعی (AI، LLM، Claude، ChatGPT، Gemini، Groq، MCP، API هوش مصنوعی، مدل‌های زبانی، prompt، agent)، برنامه‌نویسی، سیستم‌های سازمانی (راهکاران، ERP، CRM)، ابزارهای کاری و دیجیتال رو جواب بده. هوش مصنوعی و ابزارهای AI بخش مهمی از IT هستن و باید کامل توضیح بدی. فقط اگه سوال صددرصد غیرفناوری بود (سنجاق قفلی، آشپزی، پزشکی، ورزش)، مودبانه بگو این موضوع در حوزه IT نیست.
 
+قانون ۲.۱ — استثنای اسناد آپلودشده: اگه بخش «اسناد آموزشی مرتبط» یا «سوال و جواب‌های اختصاصی شرکت» توی این پرامپت محتوایی داشت که به سوال کاربر مرتبط بود (مثلاً منوی غذای کانتین، لیست تلفن داخلی، اطلاعیه‌های داخلی، فرم‌های اداری)، حتماً و بدون هیچ قید و شرطی از همون اطلاعات جواب بده — حتی اگه موضوعش IT نباشه. قانون ۲ فقط برای سوالاتی هست که هیچ سندی درباره‌شون آپلود نشده؛ وقتی سند مرتبط پیدا شد، محدودیت حوزه IT اعمال نمیشه چون خود واحد IT/HR شرکت این اطلاعات رو برای پاسخ‌گویی به کارکنان توی سیستم گذاشته.
+
 قانون ۳ — پیوستگی مکالمه: همیشه تاریخچه مکالمه رو در نظر بگیر. اگر پیام کاربر کوتاه یا مبهم بود (مثل بله، نه، آره، نه، yes، no، ok، ممنون، باشه، وصلم)، معنی‌اش رو از پیام‌های قبلی بفهم و ادامه منطقی مکالمه رو بده. هرگز پیام کوتاه رو بدون توجه به context قبلی جواب نده.
 
 قانون ۴ — احوال‌پرسی: اگر صرفاً احوال‌پرسی یا تشکر بود، مودبانه جواب بده و اعلام آمادگی برای سوالات IT کن.
@@ -396,14 +398,10 @@ function AdminPanel({ onClose, onDataChanged }) {
     return entries;
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // یه فایل رو می‌خونه و متن استخراج‌شده‌ش رو برمی‌گردونه (بدون تغییر docContent — برای استفاده در آپلود چندتایی)
+  const extractSingleFileContent = async (file) => {
     const ext = file.name.split(".").pop().toLowerCase();
-    // عنوان خودکار از اسم فایل
-    if (!docTitle) setDocTitle(file.name.replace(/\.[^/.]+$/, ""));
     if (["jpg", "jpeg", "png", "webp"].includes(ext)) {
-      showMsg("⏳ در حال خواندن تصویر با هوش مصنوعی... (ممکنه چند ثانیه طول بکشه)");
       try {
         const dataUrl = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -421,89 +419,100 @@ function AdminPanel({ onClose, onDataChanged }) {
           timeoutMs: 45000,
         });
         const data = await res.json();
-        if (data.success) {
-          setDocContent(data.text);
-          showMsg("✅ محتوای تصویر خونده شد — لطفاً یه نگاه بنداز و مطمئن شو درست بوده");
-        } else {
-          showMsg("⚠️ خطا در خواندن تصویر: " + (data.error || "نامشخص"));
-        }
+        if (data.success) return { success: true, text: data.text };
+        return { success: false, error: data.error || "نامشخص" };
       } catch {
-        showMsg("⚠️ خطا در ارتباط با سرور برای خواندن تصویر");
+        return { success: false, error: "خطا در ارتباط با سرور برای خواندن تصویر" };
       }
     } else if (ext === "pdf") {
-      showMsg("⏳ در حال خواندن PDF...");
       try {
         const arrayBuffer = await file.arrayBuffer();
         const uint8 = new Uint8Array(arrayBuffer);
         const pdfjsLib = window.pdfjsLib;
-        if (pdfjsLib) {
-          const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
-          let fullText = "";
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            fullText += content.items.map(item => item.str).join(" ") + "\n";
-          }
-          setDocContent(fullText);
-          showMsg("✅ PDF خوانده شد");
-        } else {
-          showMsg("⚠️ کتابخانه PDF هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
+        if (!pdfjsLib) return { success: false, error: "کتابخانه PDF هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن" };
+        const pdf = await pdfjsLib.getDocument({ data: uint8 }).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map(item => item.str).join(" ") + "\n";
         }
+        return { success: true, text: fullText };
       } catch {
-        showMsg("⚠️ خطا در خواندن PDF");
+        return { success: false, error: "خطا در خواندن PDF" };
       }
     } else if (ext === "docx") {
-      showMsg("⏳ در حال خواندن Word...");
       try {
         const arrayBuffer = await file.arrayBuffer();
         const mammoth = window.mammoth;
-        if (mammoth) {
-          const result = await mammoth.extractRawText({ arrayBuffer });
-          setDocContent(result.value);
-          showMsg("✅ فایل Word خوانده شد");
-        } else {
-          showMsg("⚠️ کتابخانه Word هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
-        }
+        if (!mammoth) return { success: false, error: "کتابخانه Word هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن" };
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        return { success: true, text: result.value };
       } catch {
-        showMsg("⚠️ خطا در خواندن فایل Word");
+        return { success: false, error: "خطا در خواندن فایل Word" };
       }
     } else if (ext === "doc") {
-      showMsg("⚠️ فرمت قدیمی .doc پشتیبانی نمیشه — فایل رو با Word به .docx تبدیل کن");
+      return { success: false, error: "فرمت قدیمی .doc پشتیبانی نمیشه — فایل رو با Word به .docx تبدیل کن" };
     } else if (ext === "xlsx" || ext === "xls") {
-      showMsg("⏳ در حال خواندن Excel...");
       try {
         const arrayBuffer = await file.arrayBuffer();
         const XLSX = window.XLSX;
-        if (XLSX) {
-          const wb = XLSX.read(arrayBuffer, { type: "array" });
-          let fullText = "";
-          wb.SheetNames.forEach(name => {
-            const sheet = wb.Sheets[name];
-            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
-            const directoryEntries = parseDirectoryLikeSheet(rows);
-            if (directoryEntries) {
-              fullText += `=== شیت: ${name} (لیست تلفن/داخلی) ===\n${directoryEntries.join("\n")}\n\n`;
-            } else {
-              const csv = XLSX.utils.sheet_to_csv(sheet);
-              fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
-            }
-          });
-          setDocContent(fullText.trim());
-          showMsg("✅ فایل Excel خوانده شد");
-        } else {
-          showMsg("⚠️ کتابخانه Excel هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن");
-        }
+        if (!XLSX) return { success: false, error: "کتابخانه Excel هنوز لود نشده — چند ثانیه صبر کن و دوباره امتحان کن" };
+        const wb = XLSX.read(arrayBuffer, { type: "array" });
+        let fullText = "";
+        wb.SheetNames.forEach(name => {
+          const sheet = wb.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+          const directoryEntries = parseDirectoryLikeSheet(rows);
+          if (directoryEntries) {
+            fullText += `=== شیت: ${name} (لیست تلفن/داخلی) ===\n${directoryEntries.join("\n")}\n\n`;
+          } else {
+            const csv = XLSX.utils.sheet_to_csv(sheet);
+            fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+          }
+        });
+        return { success: true, text: fullText.trim() };
       } catch {
-        showMsg("⚠️ خطا در خواندن فایل Excel");
+        return { success: false, error: "خطا در خواندن فایل Excel" };
       }
     } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setDocContent(ev.target.result);
-        showMsg("✅ فایل خوانده شد");
-      };
-      reader.readAsText(file, "UTF-8");
+      try {
+        const text = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target.result);
+          reader.onerror = reject;
+          reader.readAsText(file, "UTF-8");
+        });
+        return { success: true, text };
+      } catch {
+        return { success: false, error: "خطا در خواندن فایل" };
+      }
     }
+  };
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    // عنوان خودکار از اسم اولین فایل (برای آپلود چندتایی، پسوند صفحه رو هم حذف می‌کنه)
+    if (!docTitle) {
+      const base = files[0].name.replace(/\.[^/.]+$/, "").replace(/[-_ ]?(page|صفحه)[-_ ]?\d+$/i, "");
+      setDocTitle(base);
+    }
+
+    let combined = docContent ? docContent + "\n\n" : "";
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const label = files.length > 1 ? `فایل ${i + 1} از ${files.length} (${file.name})` : file.name;
+      showMsg(`⏳ در حال خواندن ${label}...`);
+      const result = await extractSingleFileContent(file);
+      if (result.success) {
+        combined += (files.length > 1 ? `\n--- ${file.name} ---\n` : "") + result.text + "\n";
+        setDocContent(combined.trim());
+      } else {
+        showMsg(`⚠️ خطا در خواندن ${file.name}: ${result.error}`);
+      }
+    }
+    showMsg(`✅ ${files.length > 1 ? `${files.length} فایل خونده شد` : "فایل خونده شد"} — لطفاً یه نگاه بنداز و مطمئن شو درست بوده`);
     e.target.value = "";
   };
 
@@ -729,10 +738,11 @@ function AdminPanel({ onClose, onDataChanged }) {
                   <input
                     type="file"
                     accept=".md,.txt,.pdf,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.webp"
+                    multiple
                     onChange={handleFileUpload}
                     style={{fontSize:13,cursor:"pointer"}}
                   />
-                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF، Word (.docx)، Excel (.xlsx/.xls)، عکس (JPG/PNG/WebP)</div>
+                  <div style={{fontSize:11,color:"#999",marginTop:6}}>فرمت‌های مجاز: TXT، MD، PDF، Word (.docx)، Excel (.xlsx/.xls)، عکس (JPG/PNG/WebP) — می‌تونی چند فایل رو با هم انتخاب کنی</div>
                 </div>
 
                 <div style={{position:"relative"}}>
