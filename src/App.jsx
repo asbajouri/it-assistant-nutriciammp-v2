@@ -41,7 +41,20 @@ const WEATHER_ICONS = { "01d": "☀️", "01n": "🌙", "02d": "🌤️", "02n":
 
 const formatWeatherReply = (data) => {
   const emoji = WEATHER_ICONS[data.icon] || "🌡️";
-  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h`;
+  let observedLine = "";
+  if (data.observed_at_unix) {
+    try {
+      // ترفند: timestamp رو با آفست منطقه زمانی همون شهر جمع می‌زنیم و بعد با timeZone:"UTC" فرمت می‌کنیم
+      // تا ساعت محلی شهر مقصد نمایش داده بشه، نه ساعت مرورگر کاربر
+      const localMs = (data.observed_at_unix + (data.timezone_offset_sec || 0)) * 1000;
+      const utcDate = new Date(localMs);
+      const formatted = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+        year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC"
+      }).format(utcDate);
+      observedLine = `\n\n🕒 داده مربوط به: ${formatted} (به وقت محلی ${data.city})`;
+    } catch { /* اگه فرمت تاریخ خطا داد، بی‌خیال نمایش ساعت میشیم ولی بقیه اطلاعات نمایش داده میشه */ }
+  }
+  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h${observedLine}`;
 };
 
 // ADMIN_PASSWORD moved to backend for security
@@ -86,6 +99,8 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 قانون ۴ — احوال‌پرسی: اگر صرفاً احوال‌پرسی یا تشکر بود، مودبانه جواب بده و اعلام آمادگی برای سوالات IT کن.
 
 قانون ۵ — آب و هوا: سیستم به‌صورت خودکار سوالات آب و هوای شهرهای مختلف رو با داده واقعی از OpenWeatherMap جواب می‌ده (این بخش قبل از رسیدن به تو انجام می‌شه). اگه پیامی به دستت رسید که درباره آب و هواست ولی نتونستی داده واقعی بهش بدی، از کاربر بخواه اسم شهر رو واضح‌تر یا با نام لاتین بنویسه.
+
+قانون ۶ — تاریخ و روز جاری: پایین همین پرامپت، یه بخش با عنوان «اطلاعات تاریخ امروز» هست که دقیقاً تاریخ شمسی، روز هفته و هفته جاری ماه رو مشخص می‌کنه. برای هر سوالی که به روز/هفته/تاریخ نیاز داره (مثل منوی غذا، برنامه شیفت، جدول زمان‌بندی هفتگی)، همیشه از همون اطلاعات استفاده کن. هرگز خودت تاریخ یا روز هفته رو حدس نزن یا محاسبه نکن — چون مدل‌های زبانی معمولاً در محاسبات تقویمی اشتباه می‌کنن.
 
 دامین شرکت danonemulti.net است. تمام کاربران عضو این دامین هستند.
 جواب‌هایت باید واضح، گام به گام و عملی باشند.
@@ -189,6 +204,35 @@ cscript ospp.vbs /act
 2. روی فایل کلیک راست کنید
 3. گزینه Run as Administrator را انتخاب کنید
 4. منتظر بمانید تا عملیات تکمیل شود`;
+
+// === تاریخ و روز جاری — محاسبه دقیق شمسی + هفته چندم ماه (برای اسنادی مثل منوی غذا که هفته‌شمارشون شنبه‌محوره) ===
+const getPersianDateContext = () => {
+  try {
+    const now = new Date();
+    const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
+    const todayWeekdayFa = weekdayNamesFa[now.getDay()];
+
+    const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(now);
+    const get = (type) => parts.find(p => p.type === type)?.value || "";
+    const toEnDigits = (s) => s.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+    const pYear = parseInt(toEnDigits(get("year")), 10);
+    const pMonth = parseInt(toEnDigits(get("month")), 10);
+    const pDay = parseInt(toEnDigits(get("day")), 10);
+    const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+
+    // هفته‌ی جاری ماه رو حساب کن (هفته‌ها از شنبه شروع می‌شن، هفته اول = هفته‌ای که روز ۱ ماه توشه)
+    const firstOfMonth = new Date(now);
+    firstOfMonth.setDate(now.getDate() - (pDay - 1));
+    const satOffset = (firstOfMonth.getDay() + 1) % 7; // فاصله‌ی روز اول ماه تا شنبه قبلش
+    let weekNumber = Math.ceil((pDay + satOffset) / 7);
+    weekNumber = ((weekNumber - 1) % 4) + 1; // اکثر جدول‌های شرکتی فقط ۴ هفته چرخشی تعریف می‌کنن
+    const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
+
+    return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» ماه محسوب میشه. برای هر سوالی که به روز هفته، هفته جاری ماه یا تاریخ نیاز داره (مثل منوی غذا، برنامه شیفت)، دقیقاً از همین اطلاعات استفاده کن و خودت هیچ‌وقت تاریخ یا روز هفته رو حدس یا محاسبه نکن.`;
+  } catch {
+    return "";
+  }
+};
 
 function AdminPanel({ onClose, onDataChanged }) {
   const [tab, setTab] = useState("buttons");
@@ -988,7 +1032,7 @@ export default function ITAssistant() {
         Promise.resolve(_qaCache),
         userText && allDocs.length > 0 ? searchDocsWithAI(userText, allDocs) : Promise.resolve("")
       ]);
-      let prompt = BASE_KNOWLEDGE;
+      let prompt = BASE_KNOWLEDGE + "\n\n=== اطلاعات تاریخ امروز ===\n" + getPersianDateContext();
       if (customQA.length > 0) {
         const customSection = customQA.map(item => "سوال: " + item.question + "\nجواب: " + item.answer).join("\n\n");
         prompt += "\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n" + customSection;
