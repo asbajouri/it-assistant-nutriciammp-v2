@@ -232,6 +232,7 @@ const getPersianDateContext = () => {
 
     // جدول کامل روز به روز همین ماه شمسی — تا مدل مجبور نباشه خودش برای تاریخ‌های دیگه‌ی همین ماه محاسبه کنه
     // (چون مدل‌های زبانی معمولاً در محاسبات تقویمی برای تاریخ‌های دلخواه اشتباه می‌کنن)
+    // هر روز رو توی خط جدا می‌ذاریم (نه یه لیست بلند تودرتو) چون مدل‌ها توی پیدا کردن آیتم وسط یه لیست فشرده اشتباه می‌کنن
     const cursor = new Date(firstOfMonth);
     const monthTableRows = [];
     let d = 1;
@@ -240,17 +241,19 @@ const getPersianDateContext = () => {
       const dayNum = parseInt(toEnDigits(partsD.find(p => p.type === "day").value), 10);
       if (dayNum !== d) break; // یعنی ماه عوض شده
       const wn = ((Math.ceil((d + satOffset) / 7) - 1) % 4) + 1;
-      monthTableRows.push(`${d}=${weekdayNamesFa[cursor.getDay()]}(هفته${weekNamesFa[wn - 1]})`);
+      const marker = d === pDay ? "  ← امروز" : "";
+      monthTableRows.push(`روز ${d} ${monthNamesFa[pMonth - 1]} = ${weekdayNamesFa[cursor.getDay()]}، هفته ${weekNamesFa[wn - 1]}${marker}`);
       cursor.setDate(cursor.getDate() + 1);
       d++;
     }
-    const monthTableText = monthTableRows.join("، ");
+    const monthTableText = monthTableRows.join("\n");
 
     return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» ماه محسوب میشه.
 
-جدول کامل روزهای ${monthNamesFa[pMonth - 1]} ${pYear} (فرمت: روز‌ماه=روز‌هفته(هفته‌ماه)): ${monthTableText}
+جدول مرجع روزهای ${monthNamesFa[pMonth - 1]} ${pYear} — یک خط برای هر روز:
+${monthTableText}
 
-قانون: برای هر سوالی که به روز هفته، هفته جاری ماه، یا هر تاریخ خاصی از همین ماه نیاز داره (مثلاً «۲۰ مرداد چه روزیه؟» یا «غذای فلان تاریخ چیه»)، دقیقاً و فقط از همین جدول بالا استفاده کن. خودت هیچ‌وقت روز هفته یا هفته‌ی ماه رو حدس یا محاسبه نکن — همیشه توی جدول بالا نگاه کن.`;
+قانون سخت‌گیرانه: برای هر سوالی که به روز هفته، هفته جاری ماه، یا هر تاریخ خاصی از همین ماه نیاز داره (مثلاً «۲۰ مرداد چه روزیه؟» یا «غذای فلان تاریخ چیه»)، خط دقیق همون روز رو توی جدول بالا پیدا کن و فقط از همون خط استفاده کن. هرگز حدس نزن، هرگز خودت محاسبه نکن، و هرگز روز/هفته رو با شمردن سرانگشتی از جدول تخمین نزن — دقیقاً خط «روز X ${monthNamesFa[pMonth - 1]}» رو که کاربر پرسیده پیدا کن.`;
   } catch {
     return "";
   }
@@ -310,6 +313,121 @@ const pickRelevantSheet = (content) => {
     return da - db;
   });
   return scored[0];
+};
+
+// === جستجوی قطعی منوی غذا — بدون هوش مصنوعی، مستقیم با کد ===
+// چون مدل‌های زبانی در محاسبه/تطبیق تاریخ قابل‌اعتماد نیستن، این بخش کاملاً با کد (نه AI) ردیف دقیق رو پیدا می‌کنه
+const isMenuQuery = (text) => /غذا|منو|ناهار|کانتین/i.test(text);
+
+// یه خط CSV رو با رعایت quoteها پارس می‌کنه (خروجی SheetJS ممکنه فیلدهای دارای کاما رو داخل " " بذاره)
+const parseCsvLine = (line) => {
+  const result = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false;
+      } else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ",") { result.push(cur); cur = ""; }
+      else cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+};
+
+const normalizeWeekdayStr = (s) => (s || "").replace(/[\s\u200c]/g, "").trim();
+
+// روز/هفته‌ی هدف رو از متن سوال کاربر یا (در نبود تاریخ صریح) از امروز محاسبه می‌کنه
+const computeMenuTargetInfo = (userText) => {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(now);
+  const get = (type) => parts.find(p => p.type === type)?.value || "";
+  const toEnDigits = (s) => s.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+  const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+  const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
+  const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
+
+  const todayYear = parseInt(toEnDigits(get("year")), 10);
+  const todayMonth = parseInt(toEnDigits(get("month")), 10);
+  const todayDay = parseInt(toEnDigits(get("day")), 10);
+
+  const firstOfMonth = new Date(now);
+  firstOfMonth.setDate(now.getDate() - (todayDay - 1));
+  const satOffset = (firstOfMonth.getDay() + 1) % 7;
+
+  // آیا کاربر صریحاً یه روز دیگه از همین ماه رو پرسیده؟ (مثلاً «۲۰ مرداد»، «مرداد ۲۰»)
+  const digitsFa = "۰۱۲۳۴۵۶۷۸۹";
+  const dnum = "[0-9" + digitsFa + "]{1,2}";
+  let targetDay = todayDay;
+  let isExplicit = false;
+  const monthAlt = monthNamesFa.join("|");
+  const m1 = userText.match(new RegExp(`(${dnum})\\s*(${monthAlt})`));
+  const m2 = userText.match(new RegExp(`(${monthAlt})\\s*(${dnum})`));
+  const dayMatch = m1 ? m1[1] : (m2 ? m2[2] : null);
+  const monthMatch = m1 ? m1[2] : (m2 ? m2[1] : null);
+  if (dayMatch && monthMatch && monthNamesFa.indexOf(monthMatch) + 1 === todayMonth) {
+    targetDay = parseInt(toEnDigits(dayMatch), 10);
+    isExplicit = true;
+  }
+
+  const targetDate = new Date(firstOfMonth);
+  targetDate.setDate(targetDate.getDate() + (targetDay - 1));
+  const weekdayFa = weekdayNamesFa[targetDate.getDay()];
+  const weekNumber = ((Math.ceil((targetDay + satOffset) / 7) - 1) % 4) + 1;
+
+  return {
+    targetDay, isExplicit, weekdayFa,
+    weekLabel: "هفته " + weekNamesFa[weekNumber - 1],
+    dateLabel: `${targetDay} ${monthNamesFa[todayMonth - 1]} ${todayYear}`,
+  };
+};
+
+// توی متن یه شیت (CSV چندبلاکه: هفته/روز/پیش‌غذا/اصلی/متفرقه برای منوی عادی + همون ستون‌ها برای رژیمی) دنبال ردیف هدف می‌گرده
+const extractMenuRowFromSheetBody = (sheetBody, weekLabel, weekdayFa) => {
+  const lines = (sheetBody || "").split("\n").map(l => l.trim()).filter(Boolean);
+  let currentWeek = null;
+  const targetWeekdayNorm = normalizeWeekdayStr(weekdayFa);
+  for (const line of lines) {
+    const cols = parseCsvLine(line);
+    if (!cols.length) continue;
+    const weekCell = (cols[0] || "").trim();
+    if (weekCell && weekCell.includes("هفته")) currentWeek = weekCell;
+    const dayCell = (cols[1] || "").trim();
+    if (!dayCell || !currentWeek) continue;
+    if (normalizeWeekdayStr(dayCell) === targetWeekdayNorm && currentWeek.trim() === weekLabel.trim()) {
+      return {
+        week: currentWeek, day: dayCell,
+        normal: { starter: (cols[2] || "").trim(), main: (cols[3] || "").trim(), extra: (cols[4] || "").trim() },
+        diet: { starter: (cols[8] || "").trim(), main: (cols[9] || "").trim(), extra: (cols[10] || "").trim() },
+      };
+    }
+  }
+  return null;
+};
+
+const cleanMenuField = (v) => (!v || v === "***" ? "ثبت نشده" : v);
+
+const formatMenuReply = (target, sheetTitle, row) => {
+  const lines = [`🍽️ منوی غذای ${target.dateLabel} (${row.week}، ${row.day}):`, ""];
+  lines.push("🔹 منوی عادی:");
+  lines.push(`- پیش‌غذا: ${cleanMenuField(row.normal.starter)}`);
+  lines.push(`- غذای اصلی: ${cleanMenuField(row.normal.main)}`);
+  lines.push(`- مواد متفرقه: ${cleanMenuField(row.normal.extra)}`);
+  if (row.diet.starter || row.diet.main || row.diet.extra) {
+    lines.push("");
+    lines.push("🔹 منوی رژیمی/سلامت:");
+    lines.push(`- پیش‌غذا: ${cleanMenuField(row.diet.starter)}`);
+    lines.push(`- غذای اصلی: ${cleanMenuField(row.diet.main)}`);
+    lines.push(`- مواد متفرقه: ${cleanMenuField(row.diet.extra)}`);
+  }
+  lines.push("");
+  lines.push(`(بر اساس شیت «${sheetTitle}»)`);
+  return lines.join("\n");
 };
 
 function AdminPanel({ onClose, onDataChanged }) {
@@ -1233,6 +1351,29 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+
+    // اگه سوال درباره منوی غذا بود، مستقیم و بدون AI از روی سند منو محاسبه کن (چون مدل‌ها در تطبیق تاریخ قابل‌اعتماد نیستن)
+    if (isMenuQuery(userText)) {
+      try {
+        const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
+        const menuDoc = (docs || []).find(d => /غذا|منو|کانتین|ناهار/i.test(((d.title || "") + " " + (d.category || ""))));
+        if (menuDoc && menuDoc.content) {
+          const relevantSheet = pickRelevantSheet(menuDoc.content) || { title: menuDoc.title, body: menuDoc.content };
+          const target = computeMenuTargetInfo(userText);
+          const row = extractMenuRowFromSheetBody(relevantSheet.body, target.weekLabel, target.weekdayFa);
+          if (row) {
+            const reply = formatMenuReply(target, relevantSheet.title, row);
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("menu_lookup", "deterministic");
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        // اگه چیزی خطا داد، بذار جریان عادی AI ادامه پیدا کنه (با همون جدول تاریخ توی prompt)
+      }
+    }
 
     // اگه سوال درباره آب و هوا بود، مستقیم از OpenWeatherMap جواب بده (بدون AI)
     if (isWeatherQuery(userText)) {
