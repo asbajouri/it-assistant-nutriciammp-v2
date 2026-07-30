@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 
 const API_URLS = [
   "https://asbajouri-it-assistant-api.hf.space",
-  "https://it-assistant-api.onrender.com",
 ];
 
 // Cache برای custom_qa
@@ -34,7 +33,12 @@ const extractCity = (text) => {
     if (text.includes(c)) return c;
   }
   const match = text.match(/(?:هوای|دمای|آب.?و.?هوای|weather (?:in|of)|temperature (?:in|of))\s+([^\s؟?.,!،]+(?:\s+[^\s؟?.,!،]+)?)/i);
-  return match ? match[1].trim() : null;
+  if (!match) return null;
+  const candidate = match[1].trim();
+  // اگه استخراج به‌جای اسم شهر یه عبارت پرسشی بود (مثل دکمه‌ی سریع «هوای کدوم شهرو میخوای؟»)، شهر واقعی نیست —
+  // برگردون null تا اصلاً درخواستی به API آب‌وهوا نره و مستقیم بره سراغ Q&A/AI (سریع‌تر و بدون تلاش بی‌فایده)
+  if (/کدوم|کدام|چه شهر|کجا|میخوای|می‌خوای|؟/.test(candidate)) return null;
+  return candidate;
 };
 
 const WEATHER_ICONS = { "01d": "☀️", "01n": "🌙", "02d": "🌤️", "02n": "☁️", "03d": "☁️", "03n": "☁️", "04d": "☁️", "04n": "☁️", "09d": "🌧️", "09n": "🌧️", "10d": "🌦️", "10n": "🌧️", "11d": "⛈️", "11n": "⛈️", "13d": "❄️", "13n": "❄️", "50d": "🌫️", "50n": "🌫️" };
