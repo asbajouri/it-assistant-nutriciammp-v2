@@ -221,6 +221,7 @@ const getPersianDateContext = () => {
     const pMonth = parseInt(toEnDigits(get("month")), 10);
     const pDay = parseInt(toEnDigits(get("day")), 10);
     const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+    const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
 
     // هفته‌ی جاری ماه رو حساب کن (هفته‌ها از شنبه شروع می‌شن، هفته اول = هفته‌ای که روز ۱ ماه توشه)
     const firstOfMonth = new Date(now);
@@ -228,9 +229,28 @@ const getPersianDateContext = () => {
     const satOffset = (firstOfMonth.getDay() + 1) % 7; // فاصله‌ی روز اول ماه تا شنبه قبلش
     let weekNumber = Math.ceil((pDay + satOffset) / 7);
     weekNumber = ((weekNumber - 1) % 4) + 1; // اکثر جدول‌های شرکتی فقط ۴ هفته چرخشی تعریف می‌کنن
-    const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
 
-    return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» ماه محسوب میشه. برای هر سوالی که به روز هفته، هفته جاری ماه یا تاریخ نیاز داره (مثل منوی غذا، برنامه شیفت)، دقیقاً از همین اطلاعات استفاده کن و خودت هیچ‌وقت تاریخ یا روز هفته رو حدس یا محاسبه نکن.`;
+    // جدول کامل روز به روز همین ماه شمسی — تا مدل مجبور نباشه خودش برای تاریخ‌های دیگه‌ی همین ماه محاسبه کنه
+    // (چون مدل‌های زبانی معمولاً در محاسبات تقویمی برای تاریخ‌های دلخواه اشتباه می‌کنن)
+    const cursor = new Date(firstOfMonth);
+    const monthTableRows = [];
+    let d = 1;
+    while (d <= 31) {
+      const partsD = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric" }).formatToParts(cursor);
+      const dayNum = parseInt(toEnDigits(partsD.find(p => p.type === "day").value), 10);
+      if (dayNum !== d) break; // یعنی ماه عوض شده
+      const wn = ((Math.ceil((d + satOffset) / 7) - 1) % 4) + 1;
+      monthTableRows.push(`${d}=${weekdayNamesFa[cursor.getDay()]}(هفته${weekNamesFa[wn - 1]})`);
+      cursor.setDate(cursor.getDate() + 1);
+      d++;
+    }
+    const monthTableText = monthTableRows.join("، ");
+
+    return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» ماه محسوب میشه.
+
+جدول کامل روزهای ${monthNamesFa[pMonth - 1]} ${pYear} (فرمت: روز‌ماه=روز‌هفته(هفته‌ماه)): ${monthTableText}
+
+قانون: برای هر سوالی که به روز هفته، هفته جاری ماه، یا هر تاریخ خاصی از همین ماه نیاز داره (مثلاً «۲۰ مرداد چه روزیه؟» یا «غذای فلان تاریخ چیه»)، دقیقاً و فقط از همین جدول بالا استفاده کن. خودت هیچ‌وقت روز هفته یا هفته‌ی ماه رو حدس یا محاسبه نکن — همیشه توی جدول بالا نگاه کن.`;
   } catch {
     return "";
   }
@@ -1103,7 +1123,7 @@ export default function ITAssistant() {
     const getContentForDoc = (doc) => {
       const relevant = pickRelevantSheet(doc.content || "");
       if (relevant) {
-        return `(توجه: این سند چند شیت/ماه داره؛ چون نزدیک‌ترین اطلاعات به تاریخ امروز مربوط به «${relevant.title}» است، فقط همون بخش انتخاب شده — نه لزوماً ماه دقیق امروز، پس اگه اسم ماه توی این بخش با ماه امروز فرق داشت، به کاربر بگو دقیق‌ترین داده موجوده)\n=== بخش انتخاب‌شده: ${relevant.title} ===\n${relevant.body.slice(0, 6000)}`;
+        return `(توجه مهم: این سند آرشیو چندماهه/چندساله‌ست و شامل چند شیت جداست. شیت «${relevant.title}» به‌عنوان نزدیک‌ترین شیت به تاریخ امروز انتخاب شده. این‌جور جدول‌های شرکتی («هفته اول» تا «هفته چهارم») معمولاً یه الگوی تکرارشونده‌ان که برای یه بازه‌ی چندماهه معتبرن (نه فقط ماهی که تو اسم شیت اومده) — پس حتی اگه اسم این شیت با ماه سوال کاربر فرق داشت، بازم باید از همین داده به‌عنوان دقیق‌ترین اطلاعات موجود جواب بدی. هرگز نگو «این ماه رو ندارم» یا «اطلاعات در دسترس نیست» — همیشه بر اساس هفته‌ای که کاربر پرسیده (طبق جدول تاریخ بالای پرامپت) از همین داده جواب بده. فقط اگه لازم دیدی، در پایان جواب یه اشاره‌ی کوتاه بکن که این داده از نزدیک‌ترین ماه موجود (${relevant.title}) برداشته شده.)\n=== بخش انتخاب‌شده: ${relevant.title} ===\n${relevant.body.slice(0, 6000)}`;
       }
       return doc.content.slice(0, 6000);
     };
