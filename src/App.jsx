@@ -90,6 +90,8 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 
 قانون ۱ — زبان: به زبان سوال جواب بده. فارسی→فارسی، انگلیسی→انگلیسی. هیچ کاراکتر چینی، ژاپنی، کره‌ای، هندی یا ویتنامی استفاده نکن.
 
+قانون ۱.۱ — فرمت: این چت فقط متن ساده نمایش می‌ده، Markdown رندر نمی‌شه. هرگز از ** برای بولد، # برای هدر، یا نشانه‌های Markdown دیگه استفاده نکن — در غیر این صورت همون کاراکترهای خام (**، #) توی پیام نمایش داده میشن. برای تاکید از emoji یا خط جدید استفاده کن. اگه از سندی داده‌ای مثل *** (به معنی خالی/ثبت‌نشده) دیدی، توی جوابت به‌جاش بنویس «ثبت نشده» یا «موردی ندارد».
+
 قانون ۲ — حوزه تخصصی: حوزه تو بسیار گسترده‌ست — هر چیزی مرتبط با فناوری، نرم‌افزار، سخت‌افزار، شبکه، هوش مصنوعی (AI، LLM، Claude، ChatGPT، Gemini، Groq، MCP، API هوش مصنوعی، مدل‌های زبانی، prompt، agent)، برنامه‌نویسی، سیستم‌های سازمانی (راهکاران، ERP، CRM)، ابزارهای کاری و دیجیتال رو جواب بده. هوش مصنوعی و ابزارهای AI بخش مهمی از IT هستن و باید کامل توضیح بدی. فقط اگه سوال صددرصد غیرفناوری بود (سنجاق قفلی، آشپزی، پزشکی، ورزش)، مودبانه بگو این موضوع در حوزه IT نیست.
 
 قانون ۲.۱ — استثنای اسناد آپلودشده: اگه بخش «اسناد آموزشی مرتبط» یا «سوال و جواب‌های اختصاصی شرکت» توی این پرامپت محتوایی داشت که به سوال کاربر مرتبط بود (مثلاً منوی غذای کانتین، لیست تلفن داخلی، اطلاعیه‌های داخلی، فرم‌های اداری)، حتماً و بدون هیچ قید و شرطی از همون اطلاعات جواب بده — حتی اگه موضوعش IT نباشه. قانون ۲ فقط برای سوالاتی هست که هیچ سندی درباره‌شون آپلود نشده؛ وقتی سند مرتبط پیدا شد، محدودیت حوزه IT اعمال نمیشه چون خود واحد IT/HR شرکت این اطلاعات رو برای پاسخ‌گویی به کارکنان توی سیستم گذاشته.
@@ -232,6 +234,62 @@ const getPersianDateContext = () => {
   } catch {
     return "";
   }
+};
+
+// === انتخاب شیت مرتبط از سندهای چندشیتی (مثل آرشیو چندماهه/چندساله منوی غذا) ===
+// چون سند می‌تونه خیلی بزرگ باشه، به‌جای بریدن از ابتدای متن (که شیت‌های قدیمی رو می‌ده)،
+// نزدیک‌ترین شیت به ماه جاری شمسی رو پیدا و فقط همون رو به مدل می‌دیم
+const PERSIAN_MONTH_PREFIXES = [
+  ["فروردین", "فرور"], ["اردیبهشت", "ارد"], ["خرداد", "خرد"], ["تیر", "تیر"],
+  ["مرداد", "مرد"], ["شهریور", "شهر"], ["مهر", "مهر"], ["آبان", "آبا"],
+  ["آذر", "آذر"], ["دی", "دی"], ["بهمن", "بهم"], ["اسفند", "اسف"],
+];
+
+const getPersianTodayYM = () => {
+  try {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric" }).formatToParts(now);
+    const get = (type) => parts.find(p => p.type === type)?.value || "";
+    const toEnDigits = (s) => s.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+    return { year: parseInt(toEnDigits(get("year")), 10), month: parseInt(toEnDigits(get("month")), 10) };
+  } catch {
+    return null;
+  }
+};
+
+const pickRelevantSheet = (content) => {
+  const sheetRegex = /=== شیت: ([^=]+?) ===\n([\s\S]*?)(?=\n=== شیت:|$)/g;
+  const sheets = [];
+  let m;
+  while ((m = sheetRegex.exec(content)) !== null) {
+    sheets.push({ title: m[1].trim(), body: m[2].trim() });
+  }
+  if (sheets.length <= 1) return null; // سند تک‌شیتی — نیازی به این منطق نیست
+
+  const today = getPersianTodayYM();
+  if (!today) return null;
+
+  const scored = sheets.map(s => {
+    let year = null, monthIdx = null;
+    const yearMatch = s.title.match(/1[34]\d{2}/); // سال شمسی ۴ رقمی
+    if (yearMatch) year = parseInt(yearMatch[0], 10);
+    for (let i = 0; i < PERSIAN_MONTH_PREFIXES.length; i++) {
+      if (s.title.includes(PERSIAN_MONTH_PREFIXES[i][1])) { monthIdx = i + 1; break; }
+    }
+    const key = (year && monthIdx) ? year * 12 + monthIdx : null;
+    return { ...s, key };
+  }).filter(s => s.key !== null);
+
+  if (!scored.length) return null;
+  const todayKey = today.year * 12 + today.month;
+
+  // نزدیک‌ترین شیت به ماه جاری — در تساوی فاصله، ماه گذشته/جاری رو به ماه آینده ترجیح بده
+  scored.sort((a, b) => {
+    const da = Math.abs(a.key - todayKey) - (a.key <= todayKey ? 0.5 : 0);
+    const db = Math.abs(b.key - todayKey) - (b.key <= todayKey ? 0.5 : 0);
+    return da - db;
+  });
+  return scored[0];
 };
 
 function AdminPanel({ onClose, onDataChanged }) {
@@ -534,7 +592,52 @@ function AdminPanel({ onClose, onDataChanged }) {
     }
   };
 
-  const handleFileUpload = async (e) => {
+  // تشخیص و مسطح‌سازی جدول‌های «برنامه هفتگی دوبلاکی» مثل منوی غذا (چند بلاک ستونی که هر کدوم هفته/روز/چند ستون توضیح دارن)
+// این جدول‌ها با ستون تکراری «هفته های ماه» شناسایی می‌شن — با جدول تلفن (parseDirectoryLikeSheet) فرق دارن چون ستون‌هاشون عددی نیست
+const parseWeeklyMenuSheet = (rows) => {
+  let headerRowIdx = -1;
+  let blockStarts = [];
+  for (let r = 0; r < Math.min(rows.length, 5); r++) {
+    const cols = [];
+    (rows[r] || []).forEach((cell, idx) => {
+      if (typeof cell === "string" && cell.trim() === "هفته های ماه") cols.push(idx);
+    });
+    if (cols.length >= 1) { headerRowIdx = r; blockStarts = cols; break; }
+  }
+  if (headerRowIdx === -1) return null;
+
+  const labelRow = rows[headerRowIdx - 1] || [];
+  const blocks = blockStarts.map((start) => ({
+    start,
+    label: (labelRow[start] && String(labelRow[start]).trim()) || "منو",
+    currentWeek: "",
+  }));
+
+  const clean = (v) => {
+    const s = (v === undefined || v === null) ? "" : String(v).trim();
+    return (!s || s === "***" || s === "--") ? "ثبت نشده" : s;
+  };
+
+  const lines = [];
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.every((c) => !String(c || "").trim())) continue;
+    for (const block of blocks) {
+      const weekCell = row[block.start];
+      if (weekCell && String(weekCell).trim()) block.currentWeek = String(weekCell).trim();
+      const day = row[block.start + 1];
+      if (!day || !String(day).trim()) continue;
+      const appetizer = clean(row[block.start + 2]);
+      const main = clean(row[block.start + 3]);
+      const extra = clean(row[block.start + 4]);
+      lines.push(`[${block.label}] ${block.currentWeek || "؟"} - ${String(day).trim()}: پیش‌غذا: ${appetizer} — غذای اصلی: ${main} — مواد متفرقه: ${extra}`);
+    }
+  }
+  if (lines.length < 5) return null;
+  return lines;
+};
+
+const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     // عنوان خودکار از اسم اولین فایل (برای آپلود چندتایی، پسوند صفحه رو هم حذف می‌کنه)
@@ -996,6 +1099,15 @@ export default function ITAssistant() {
       return { doc, score };
     }).sort((a, b) => b.score - a.score);
 
+    // اگه سند چند شیت داره (مثل آرشیو چندماهه)، فقط نزدیک‌ترین شیت به تاریخ امروز رو بده، وگرنه یه تکه بزرگ از اول متن
+    const getContentForDoc = (doc) => {
+      const relevant = pickRelevantSheet(doc.content || "");
+      if (relevant) {
+        return `(توجه: این سند چند شیت/ماه داره؛ چون نزدیک‌ترین اطلاعات به تاریخ امروز مربوط به «${relevant.title}» است، فقط همون بخش انتخاب شده — نه لزوماً ماه دقیق امروز، پس اگه اسم ماه توی این بخش با ماه امروز فرق داشت، به کاربر بگو دقیق‌ترین داده موجوده)\n=== بخش انتخاب‌شده: ${relevant.title} ===\n${relevant.body.slice(0, 6000)}`;
+      }
+      return doc.content.slice(0, 6000);
+    };
+
     // اسناد با score بالا رو کامل بفرست، بقیه رو با عنوان معرفی کن
     const topDocs = scored.filter(x => x.score > 0).slice(0, 3);
     const otherDocs = scored.filter(x => x.score === 0);
@@ -1003,12 +1115,12 @@ export default function ITAssistant() {
     let result = "";
     if (topDocs.length > 0) {
       result = topDocs.map(x =>
-        "=== سند مرتبط: " + x.doc.title + " [دسته: " + (x.doc.category || "general") + "] ===\n" + x.doc.content.slice(0, 3000)
+        "=== سند مرتبط: " + x.doc.title + " [دسته: " + (x.doc.category || "general") + "] ===\n" + getContentForDoc(x.doc)
       ).join("\n\n");
     } else {
       // هیچ match‌ای نبود — همه اسناد رو با عنوان معرفی کن
       result = "=== اسناد آموزشی موجود ===\n" + docs.map(d =>
-        "📄 " + d.title + " [" + (d.category || "general") + "]:\n" + d.content.slice(0, 1000)
+        "📄 " + d.title + " [" + (d.category || "general") + "]:\n" + getContentForDoc(d).slice(0, 2000)
       ).join("\n\n---\n\n");
     }
 
@@ -1060,7 +1172,12 @@ export default function ITAssistant() {
   };
 
   const renderMessage = (text) => {
-    const parts = text.split(/(https?:\/\/\S+)/g);
+    // این چت فقط متن ساده نشون می‌ده (نه Markdown رندرشده)؛ اگه مدل به‌اشتباه از ** یا # استفاده کنه، پاکش کن
+    const cleaned = text
+      .replace(/\*\*\*/g, "—")      // *** (نشونه‌ی خالی بودن سلول در اسناد اکسل) → خط تیره خوانا
+      .replace(/\*\*/g, "")          // **بولد** → بدون نشونه
+      .replace(/^#{1,6}\s*/gm, "");  // # هدر → بدون #
+    const parts = cleaned.split(/(https?:\/\/\S+)/g);
     return parts.map((part, i) => {
       if (part.startsWith("http://") || part.startsWith("https://")) {
         const cleanUrl = part.replace(/[.,،؟!)\]]+$/, "");
