@@ -345,45 +345,75 @@ const normalizeWeekdayStr = (s) => (s || "").replace(/[\s\u200c]/g, "").trim();
 // روز/هفته‌ی هدف رو از متن سوال کاربر یا (در نبود تاریخ صریح) از امروز محاسبه می‌کنه
 const computeMenuTargetInfo = (userText) => {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(now);
-  const get = (type) => parts.find(p => p.type === type)?.value || "";
   const toEnDigits = (s) => s.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
   const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
-  const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
+  const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"]; // اندیس با getDay(): 0=یکشنبه...6=شنبه
   const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
+  const persianPartsOf = (d) => {
+    const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(d);
+    const get = (t) => parts.find(p => p.type === t)?.value || "";
+    return { y: parseInt(toEnDigits(get("year")), 10), m: parseInt(toEnDigits(get("month")), 10), d: parseInt(toEnDigits(get("day")), 10) };
+  };
 
-  const todayYear = parseInt(toEnDigits(get("year")), 10);
-  const todayMonth = parseInt(toEnDigits(get("month")), 10);
-  const todayDay = parseInt(toEnDigits(get("day")), 10);
+  let targetDate = new Date(now);
+  let isExplicit = false;
 
-  const firstOfMonth = new Date(now);
-  firstOfMonth.setDate(now.getDate() - (todayDay - 1));
-  const satOffset = (firstOfMonth.getDay() + 1) % 7;
-
-  // آیا کاربر صریحاً یه روز دیگه از همین ماه رو پرسیده؟ (مثلاً «۲۰ مرداد»، «مرداد ۲۰»)
+  // حالت الف: تاریخ صریح مثل «۲۰ مرداد» یا «مرداد ۲۰» — برای هر ماه/سالی، نه فقط ماه جاری
   const digitsFa = "۰۱۲۳۴۵۶۷۸۹";
   const dnum = "[0-9" + digitsFa + "]{1,2}";
-  let targetDay = todayDay;
-  let isExplicit = false;
   const monthAlt = monthNamesFa.join("|");
   const m1 = userText.match(new RegExp(`(${dnum})\\s*(${monthAlt})`));
   const m2 = userText.match(new RegExp(`(${monthAlt})\\s*(${dnum})`));
   const dayMatch = m1 ? m1[1] : (m2 ? m2[2] : null);
   const monthMatch = m1 ? m1[2] : (m2 ? m2[1] : null);
-  if (dayMatch && monthMatch && monthNamesFa.indexOf(monthMatch) + 1 === todayMonth) {
-    targetDay = parseInt(toEnDigits(dayMatch), 10);
-    isExplicit = true;
+
+  if (dayMatch && monthMatch) {
+    const targetMonthIdx = monthNamesFa.indexOf(monthMatch) + 1;
+    const targetDayNum = parseInt(toEnDigits(dayMatch), 10);
+    // نزدیک‌ترین وقوع این روز/ماه رو نسبت به امروز پیدا کن (تا ۴۰۰ روز جلو و عقب) — سال رو خودش حل می‌کنه
+    outer:
+    for (let offset = 0; offset <= 400; offset++) {
+      const signs = offset === 0 ? [1] : [1, -1];
+      for (const sign of signs) {
+        const cand = new Date(now);
+        cand.setDate(now.getDate() + sign * offset);
+        const p = persianPartsOf(cand);
+        if (p.m === targetMonthIdx && p.d === targetDayNum) {
+          targetDate = cand; isExplicit = true;
+          break outer;
+        }
+      }
+    }
+  } else {
+    // حالت ب: فقط اسم روز هفته گفته شده (بدون تاریخ دقیق) — نزدیک‌ترین وقوع همون روز، از امروز به بعد (امروز هم حساب میشه)
+    const weekdayEntries = [
+      ["یکشنبه", 0], ["دوشنبه", 1], ["سهشنبه", 2], ["چهارشنبه", 3], ["پنجشنبه", 4], ["جمعه", 5], ["شنبه", 6],
+    ];
+    const normText = userText.replace(/[\s\u200c]/g, "");
+    let matchedJsDay = null;
+    for (const [name, jsDay] of weekdayEntries) {
+      if (normText.includes(name)) { matchedJsDay = jsDay; break; }
+    }
+    if (matchedJsDay !== null) {
+      for (let offset = 0; offset <= 6; offset++) {
+        const cand = new Date(now);
+        cand.setDate(now.getDate() + offset);
+        if (cand.getDay() === matchedJsDay) { targetDate = cand; isExplicit = true; break; }
+      }
+    }
   }
 
-  const targetDate = new Date(firstOfMonth);
-  targetDate.setDate(targetDate.getDate() + (targetDay - 1));
-  const weekdayFa = weekdayNamesFa[targetDate.getDay()];
-  const weekNumber = ((Math.ceil((targetDay + satOffset) / 7) - 1) % 4) + 1;
+  // از targetDate، سال/ماه/روز شمسی و هفته‌ی ماه رو بر مبنای ماه خود همون تاریخ (نه لزوماً ماه امروز) حساب کن
+  const tp = persianPartsOf(targetDate);
+  const firstOfMonth = new Date(targetDate);
+  firstOfMonth.setDate(targetDate.getDate() - (tp.d - 1));
+  const satOffset = (firstOfMonth.getDay() + 1) % 7;
+  const weekNumber = ((Math.ceil((tp.d + satOffset) / 7) - 1) % 4) + 1;
 
   return {
-    targetDay, isExplicit, weekdayFa,
+    targetDay: tp.d, isExplicit, weekdayFa: weekdayNamesFa[targetDate.getDay()],
     weekLabel: "هفته " + weekNamesFa[weekNumber - 1],
-    dateLabel: `${targetDay} ${monthNamesFa[todayMonth - 1]} ${todayYear}`,
+    dateLabel: `${tp.d} ${monthNamesFa[tp.m - 1]} ${tp.y}`,
   };
 };
 
