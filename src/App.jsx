@@ -1477,6 +1477,7 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt }),
+        timeoutMs: 45000, // بک‌اند تا ۴ تا AI provider رو پشت‌سرهم امتحان می‌کنه (هرکدوم تا ۲۰ ثانیه)، پس باید صبر بیشتری بدیم
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
