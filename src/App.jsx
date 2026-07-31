@@ -26,6 +26,15 @@ async function fetchWithFallback(path, options) {
 // === آب و هوا — تشخیص سوال و استخراج نام شهر ===
 const IRAN_CITIES = ["تهران", "مشهد", "شاندیز", "اصفهان", "شیراز", "تبریز", "اهواز", "کرج", "قم", "کرمان", "یزد", "رشت", "همدان", "ارومیه", "زاهدان", "ساری", "بندرعباس", "کرمانشاه", "اراک", "زنجان", "قزوین", "گرگان", "سنندج", "خرم‌آباد", "خرم آباد", "یاسوج", "بجنورد", "بیرجند", "ایلام", "بوشهر", "دماوند", "توس"];
 
+// نرمال‌سازی متن فارسی (حروف عربی/فارسی یکسان، حروف کوچک) — هم برای جستجوی اسناد هم برای جستجوی تلفن استفاده میشه
+const normalizeText = (t) => t
+  .toLowerCase()
+  .replace(/ي/g, "ی")   // ي → ی
+  .replace(/ك/g, "ک")   // ك → ک
+  .replace(/ى/g, "ی")   // ى → ی
+  .replace(/[؀-ۿ]+/g, m => m)
+  .trim();
+
 const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weather|temperature/i.test(text);
 
 const extractCity = (text) => {
@@ -107,6 +116,8 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 قانون ۵ — آب و هوا: سیستم به‌صورت خودکار سوالات آب و هوای شهرهای مختلف رو با داده واقعی از OpenWeatherMap جواب می‌ده (این بخش قبل از رسیدن به تو انجام می‌شه). اگه پیامی به دستت رسید که درباره آب و هواست ولی نتونستی داده واقعی بهش بدی، از کاربر بخواه اسم شهر رو واضح‌تر یا با نام لاتین بنویسه.
 
 قانون ۶ — تاریخ و روز جاری: پایین همین پرامپت، یه بخش با عنوان «اطلاعات تاریخ امروز» هست که دقیقاً تاریخ شمسی، روز هفته و هفته جاری ماه رو مشخص می‌کنه. برای هر سوالی که به روز/هفته/تاریخ نیاز داره (مثل منوی غذا، برنامه شیفت، جدول زمان‌بندی هفتگی)، همیشه از همون اطلاعات استفاده کن. هرگز خودت تاریخ یا روز هفته رو حدس نزن یا محاسبه نکن — چون مدل‌های زبانی معمولاً در محاسبات تقویمی اشتباه می‌کنن.
+
+قانون ۷ — جستجوی نام در اسناد (مثل لیست تلفن): اگه کاربر فقط بخشی از یه اسم رو گفت (مثلاً فقط نام‌خانوادگی «رضایی» بدون نام کوچیک)، هرگز نگو «لطفاً نام کامل و دقیق بدید». به‌جاش توی سند دنبال همه‌ی ردیف‌هایی بگرد که اون بخش از اسم توشونه (partial match) و همه‌شون رو با شماره‌ی داخلی‌شون لیست کن تا کاربر خودش انتخاب کنه. فقط وقتی هیچ‌کدوم از اسم‌های توی سند شبیه چیزی که کاربر گفته نبودن، بگو پیدا نشد.
 
 دامین شرکت danonemulti.net است. تمام کاربران عضو این دامین هستند.
 جواب‌هایت باید واضح، گام به گام و عملی باشند.
@@ -322,6 +333,38 @@ const pickRelevantSheet = (content) => {
 // === جستجوی قطعی منوی غذا — بدون هوش مصنوعی، مستقیم با کد ===
 // چون مدل‌های زبانی در محاسبه/تطبیق تاریخ قابل‌اعتماد نیستن، این بخش کاملاً با کد (نه AI) ردیف دقیق رو پیدا می‌کنه
 const isMenuQuery = (text) => /غذا|منو|ناهار|کانتین/i.test(text);
+
+// === جستجوی قطعی لیست تلفن داخلی — بدون هوش مصنوعی ===
+// مدل‌ها توی جستجوی partial/fuzzy داخل سندهای بزرگ قابل‌اعتماد نیستن (مثلاً "رضایی" رو پیدا نمی‌کنن مگه اسم کامل دقیق بدی)
+// این تابع مستقیم توی متن سندها دنبال خط‌هایی می‌گرده که هم شبیه رکورد تلفن باشن (عدد ۳ تا ۵ رقمی داشته باشن) هم عبارت جستجو رو داشته باشن
+const isPhoneQuery = (text) => /داخلی|شماره\s*تماس|شماره\s*تلفن|تلفن\s*داخلی/i.test(text);
+
+const PHONE_QUERY_STOPWORDS = ["داخلی", "شماره", "تماس", "تلفن", "چنده", "چیه", "چیست", "هست", "است", "آقای", "خانم", "جناب", "سرکار", "لطفا", "لطفاً", "بگو", "بده"];
+
+const extractPhoneSearchTerm = (text) => {
+  let t = text;
+  for (const w of PHONE_QUERY_STOPWORDS) {
+    t = t.replace(new RegExp(w, "gi"), " ");
+  }
+  t = t.replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
+  return t;
+};
+
+const searchPhoneDirectory = (docs, term) => {
+  if (!term || term.length < 2) return [];
+  const termNorm = normalizeText(term);
+  const results = [];
+  for (const doc of docs || []) {
+    const lines = (doc.content || "").split("\n");
+    for (const line of lines) {
+      if (!/\d{3,5}/.test(line)) continue; // فقط خط‌هایی که به رکورد تلفن شبیهن (عدد داخلی توشونه)
+      if (normalizeText(line).includes(termNorm)) {
+        results.push(line.trim());
+      }
+    }
+  }
+  return [...new Set(results)]; // حذف رکورد تکراری (اگه چند سند مشترک باشن)
+};
 
 // یه خط CSV رو با رعایت quoteها پارس می‌کنه (خروجی SheetJS ممکنه فیلدهای دارای کاما رو داخل " " بذاره)
 const parseCsvLine = (line) => {
@@ -1244,14 +1287,6 @@ export default function ITAssistant() {
     sendMessage(question);
   };
 
-  const normalizeText = (t) => t
-    .toLowerCase()
-    .replace(/ي/g, "ی")   // ي → ی
-    .replace(/ك/g, "ک")   // ك → ک
-    .replace(/ى/g, "ی")   // ى → ی
-    .replace(/[؀-ۿ]+/g, m => m)
-    .trim();
-
   // جستجوی هوشمند در اسناد — بر اساس عنوان و محتوا
   const searchDocsWithAI = (userText, docs) => {
     if (!docs || docs.length === 0) return "";
@@ -1385,6 +1420,26 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+
+    // اگه سوال درباره داخلی/شماره تلفن بود، مستقیم توی سندها بگرد (بدون AI) — چون مدل‌ها توی partial match قابل‌اعتماد نیستن
+    if (isPhoneQuery(userText)) {
+      try {
+        const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
+        const term = extractPhoneSearchTerm(userText);
+        const matches = searchPhoneDirectory(docs, term);
+        if (matches.length > 0) {
+          const reply = `📞 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("phone_lookup", "deterministic");
+          setLoading(false);
+          return;
+        }
+        // اگه هیچ match‌ای نبود (مثلاً غلط املایی یا سوال اصلاً درباره تلفن نبود)، بذار جریان عادی AI ادامه پیدا کنه
+      } catch (e) {
+        // بذار جریان عادی AI ادامه پیدا کنه
+      }
+    }
 
     // اگه سوال درباره منوی غذا بود، مستقیم و بدون AI از روی سند منو محاسبه کن (چون مدل‌ها در تطبیق تاریخ قابل‌اعتماد نیستن)
     if (isMenuQuery(userText)) {
