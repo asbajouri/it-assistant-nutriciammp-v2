@@ -405,12 +405,30 @@ const computeMenuTargetInfo = (userText) => {
   let targetDate = new Date(now);
   let isExplicit = false;
 
+  // حالت صفر (بالاترین اولویت): روزهای نسبی مثل «فردا»، «دیروز»، «پس‌فردا»، «پریروز»
+  const relativeDayMap = [
+    [/پس\s*فردا|پسفردا/i, 2],
+    [/پری\s*روز|پریروز/i, -2],
+    [/فردا/i, 1],
+    [/دیروز/i, -1],
+  ];
+  let relativeMatched = false;
+  for (const [re, offset] of relativeDayMap) {
+    if (re.test(userText)) {
+      targetDate = new Date(now);
+      targetDate.setDate(now.getDate() + offset);
+      isExplicit = true;
+      relativeMatched = true;
+      break;
+    }
+  }
+
   // حالت الف: تاریخ صریح مثل «۲۰ مرداد» یا «مرداد ۲۰» — برای هر ماه/سالی، نه فقط ماه جاری
   const digitsFa = "۰۱۲۳۴۵۶۷۸۹";
   const dnum = "[0-9" + digitsFa + "]{1,2}";
   const monthAlt = monthNamesFa.join("|");
-  const m1 = userText.match(new RegExp(`(${dnum})\\s*(${monthAlt})`));
-  const m2 = userText.match(new RegExp(`(${monthAlt})\\s*(${dnum})`));
+  const m1 = relativeMatched ? null : userText.match(new RegExp(`(${dnum})\\s*(${monthAlt})`));
+  const m2 = relativeMatched ? null : userText.match(new RegExp(`(${monthAlt})\\s*(${dnum})`));
   const dayMatch = m1 ? m1[1] : (m2 ? m2[2] : null);
   const monthMatch = m1 ? m1[2] : (m2 ? m2[1] : null);
 
@@ -431,7 +449,7 @@ const computeMenuTargetInfo = (userText) => {
         }
       }
     }
-  } else {
+  } else if (!relativeMatched) {
     // حالت ب: فقط اسم روز هفته گفته شده (بدون تاریخ دقیق) — نزدیک‌ترین وقوع همون روز، از امروز به بعد (امروز هم حساب میشه)
     const weekdayEntries = [
       ["یکشنبه", 0], ["دوشنبه", 1], ["سهشنبه", 2], ["چهارشنبه", 3], ["پنجشنبه", 4], ["جمعه", 5], ["شنبه", 6],
