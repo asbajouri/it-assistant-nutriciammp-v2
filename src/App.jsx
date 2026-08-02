@@ -1333,7 +1333,7 @@ export default function ITAssistant() {
       return doc.content.slice(0, 6000);
     };
 
-    // اسناد با score بالا رو کامل بفرست، بقیه رو با عنوان معرفی کن
+    // اسناد با score بالا رو کامل بفرست، بقیه رو فقط با عنوان معرفی کن
     const topDocs = scored.filter(x => x.score > 0).slice(0, 3);
     const otherDocs = scored.filter(x => x.score === 0);
 
@@ -1343,10 +1343,11 @@ export default function ITAssistant() {
         "=== سند مرتبط: " + x.doc.title + " [دسته: " + (x.doc.category || "general") + "] ===\n" + getContentForDoc(x.doc)
       ).join("\n\n");
     } else {
-      // هیچ match‌ای نبود — همه اسناد رو با عنوان معرفی کن
-      result = "=== اسناد آموزشی موجود ===\n" + docs.map(d =>
-        "📄 " + d.title + " [" + (d.category || "general") + "]:\n" + getContentForDoc(d).slice(0, 2000)
-      ).join("\n\n---\n\n");
+      // هیچ match‌ای نبود — فقط عنوان اسناد رو بده، نه محتواشون (قبلاً تا 2000 کاراکتر از هر سند
+      // می‌فرستاد که با زیاد شدن تعداد اسناد باعث خطای 413 Payload Too Large روی Groq می‌شد)
+      result = "=== اسناد آموزشی موجود (هیچ‌کدوم به سوال فعلی مرتبط تشخیص داده نشد) ===\n" + docs.map(d =>
+        "📄 " + d.title + " [" + (d.category || "general") + "]"
+      ).join("\n") + "\n(اگه سوال کاربر به یکی از این عنوان‌ها مرتبطه، بگو کدومو می‌خواد تا محتواش رو بیارم.)";
     }
 
     // اسناد دیگه رو با عنوان اضافه کن
