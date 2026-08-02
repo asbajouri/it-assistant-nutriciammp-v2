@@ -67,7 +67,23 @@ const formatWeatherReply = (data) => {
       observedLine = `\n\n🕒 داده مربوط به: ${formatted} (به وقت محلی ${data.city})`;
     } catch { /* اگه فرمت تاریخ خطا داد، بی‌خیال نمایش ساعت میشیم ولی بقیه اطلاعات نمایش داده میشه */ }
   }
-  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h${observedLine}`;
+
+  let forecastBlock = "";
+  if (Array.isArray(data.forecast) && data.forecast.length > 0) {
+    const tzOffset = data.forecast_timezone_offset_sec || 0;
+    const lines = data.forecast.map(d => {
+      const dEmoji = WEATHER_ICONS[d.icon] || "🌡️";
+      let weekday = "";
+      try {
+        const localMs = (d.date_unix + tzOffset) * 1000;
+        weekday = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { weekday: "long", timeZone: "UTC" }).format(new Date(localMs));
+      } catch { weekday = ""; }
+      return `${dEmoji} ${weekday}: ${d.min}° تا ${d.max}°C — ${d.description}`;
+    });
+    forecastBlock = `\n\n📅 پیش‌بینی ۳ روز آینده:\n${lines.join("\n")}`;
+  }
+
+  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h${observedLine}${forecastBlock}`;
 };
 
 // ADMIN_PASSWORD moved to backend for security
