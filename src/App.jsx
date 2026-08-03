@@ -83,7 +83,7 @@ const formatWeatherReply = (data) => {
     forecastBlock = `\n\n📅 پیش‌بینی ۳ روز آینده:\n${lines.join("\n")}`;
   }
 
-  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h${observedLine}${forecastBlock}`;
+  return `${emoji} آب و هوای ${data.city}:\n\n🌡️ دما: ${data.temp}°C (احساس واقعی: ${data.feels_like}°C)\n☁️ وضعیت: ${data.description}\n💧 رطوبت: ${data.humidity}%\n💨 سرعت باد: ${data.wind_kmh} km/h${observedLine}${forecastBlock}\n\n📡 منبع: OpenWeatherMap`;
 };
 
 // ADMIN_PASSWORD moved to backend for security
