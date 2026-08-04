@@ -1414,10 +1414,21 @@ export default function ITAssistant() {
     // exact match
     const exact = qaList.find(item => normalize(item.question) === userNorm);
     if (exact) return exact.answer;
-    // contains match (سوال کاربر شامل سوال اختصاصی باشه یا برعکس)
+    // چهارم اوت ۲۰۲۶: قبلاً partial match با substring خام بود (userNorm.includes(qNorm) یا برعکس).
+    // این باعث می‌شد یه سوال ذخیره‌شده‌ی تک‌کلمه‌ای مثل "excel" داخل هر سوال دیگه‌ای که همون کلمه رو
+    // داشت (مثلاً "what is excel?") match بشه و جواب فارسیِ از‌پیش‌نوشته‌شده رو مستقیم برگردونه — بدون
+    // این‌که اصلاً از هوش مصنوعی (و قانون «به زبان سوال جواب بده») رد بشه. حالا دو محافظ اضافه شده:
+    // ۱) هر دو طرف باید حداقل ۲ کلمه داشته باشن (یه کلمه‌ی تنها خیلی مبهمه برای partial match امنه)
+    // ۲) match باید مرز کلمه (word boundary) باشه، نه substring خام وسط یه کلمه‌ی دیگه
     const partial = qaList.find(item => {
       const qNorm = normalize(item.question);
-      return userNorm.includes(qNorm) || qNorm.includes(userNorm);
+      const qWords = qNorm.split(" ").filter(Boolean);
+      const userWords = userNorm.split(" ").filter(Boolean);
+      if (qWords.length < 2 || userWords.length < 2) return false;
+      const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const qInUser = new RegExp(`(^|\\s)${esc(qNorm)}(\\s|$)`).test(userNorm);
+      const userInQ = new RegExp(`(^|\\s)${esc(userNorm)}(\\s|$)`).test(qNorm);
+      return qInUser || userInQ;
     });
     return partial ? partial.answer : null;
   };
