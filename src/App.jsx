@@ -9,16 +9,25 @@ let _qaCache = null;
 let _qaCacheTime = 0;
 
 async function fetchWithFallback(path, options) {
-  const { timeoutMs, ...fetchOptions } = options || {};
-  for (const base of API_URLS) {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), timeoutMs || 12000);
-      const res = await fetch(`${base}${path}`, { ...fetchOptions, signal: controller.signal });
-      clearTimeout(t);
-      if (res.ok) return res;
-    } catch (e) {
-      continue;
+  // retries/retryDelayMs پیش‌فرض ۰/بدون‌تأخیرن — یعنی رفتار همه‌ی call siteهای فعلی (weather,
+  // admin/login, extract-image, ...) دقیقاً همون قبلیه، هیچ‌کدوم عوض نشدن.
+  // فقط /chat به‌صورت صریح retries:1 پاس می‌ده (پایین‌تر) چون تنها جایی‌ست که به‌خاطر زنجیره‌ی
+  // ۴ تا provider رایگان، گاهی یه burst کوتاه باعث ۵۰۳ میشه که چند ثانیه بعد خودش برطرف میشه.
+  const { timeoutMs, retries = 0, retryDelayMs = 2500, ...fetchOptions } = options || {};
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    for (const base of API_URLS) {
+      try {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), timeoutMs || 12000);
+        const res = await fetch(`${base}${path}`, { ...fetchOptions, signal: controller.signal });
+        clearTimeout(t);
+        if (res.ok) return res;
+      } catch (e) {
+        continue;
+      }
+    }
+    if (attempt < retries) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
   throw new Error("هر دو سرور در دسترس نیستند");
@@ -1571,6 +1580,8 @@ export default function ITAssistant() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt }),
         timeoutMs: 45000, // بک‌اند تا ۴ تا AI provider رو پشت‌سرهم امتحان می‌کنه (هرکدوم تا ۲۰ ثانیه)، پس باید صبر بیشتری بدیم
+        retries: 1, // اگه اولین تلاش ۵۰۳ داد (burst موقتی روی providerهای رایگان)، خودکار یه‌بار دیگه
+        retryDelayMs: 2500, // امتحان می‌کنه قبل از نمایش خطا به کاربر — دقیقاً همون کاری که کاربر دستی انجام می‌داد
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
