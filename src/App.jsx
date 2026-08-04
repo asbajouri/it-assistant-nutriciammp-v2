@@ -1460,7 +1460,7 @@ export default function ITAssistant() {
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
 
   const sendMessage = async (text) => {
-    const userText = text || input.trim();
+    const userText = (text || input).trim();
     if (!userText || loading) return;
     setInput("");
     const newMessages = [...messages, { role: "user", content: userText }];
