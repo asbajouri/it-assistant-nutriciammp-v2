@@ -1459,6 +1459,16 @@ export default function ITAssistant() {
 
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
 
+  // چهارم اوت ۲۰۲۶: کاربر گزارش داد جواب‌های انگلیسی قبلاً چپ‌چین بودن، الان همیشه راست‌چین/RTL
+  // نشون داده می‌شن (چون استایل بابل پیام قبلاً همیشه direction:"rtl" ثابت بود). این تابع تشخیص
+  // می‌ده متن غالباً لاتین (انگلیسی) هست یا فارسی/عربی، تا بابل پیام بتونه جهت مناسب رو بگیره.
+  const isLatinText = (text) => {
+    const persianArabicChars = (text.match(/[\u0600-\u06FF\u0750-\u077F]/g) || []).length;
+    const latinChars = (text.match(/[A-Za-z]/g) || []).length;
+    if (latinChars === 0) return false;
+    return latinChars > persianArabicChars;
+  };
+
   const sendMessage = async (text) => {
     const userText = (text || input).trim();
     if (!userText || loading) return;
@@ -1579,9 +1589,14 @@ export default function ITAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt }),
-        timeoutMs: 45000, // بک‌اند تا ۴ تا AI provider رو پشت‌سرهم امتحان می‌کنه (هرکدوم تا ۲۰ ثانیه)، پس باید صبر بیشتری بدیم
-        retries: 1, // اگه اولین تلاش ۵۰۳ داد (burst موقتی روی providerهای رایگان)، خودکار یه‌بار دیگه
-        retryDelayMs: 2500, // امتحان می‌کنه قبل از نمایش خطا به کاربر — دقیقاً همون کاری که کاربر دستی انجام می‌داد
+        // ⏱️ چهارم اوت ۲۰۲۶: با شناسه‌ی rid توی بک‌اند دیدیم بعضی جواب‌های موفق واقعی ۶۰ تا ۹۶
+        // ثانیه طول کشیدن (نه به‌خاطر timeout هر provider، بلکه ازدحام CPU/شبکه‌ی رایگان HF وقتی
+        // چند درخواست هم‌زمان میان). با timeoutMs قبلی (۴۵s) + retries:1 این اتفاق می‌افتاد:
+        // فرانت‌اند در ۴۵ ثانیه تسلیم می‌شد و «خطا در اتصال» نشون می‌داد، بعد یه تلاش دوم می‌فرستاد —
+        // در حالی که تلاش اول داشت پشت صحنه به یه جواب واقعی می‌رسید! این هم به کاربر خطای دروغین
+        // نشون می‌داد، هم با ارسال دو درخواست هم‌زمان روی همون ۳ کلید Groq، rate limit رو بدتر می‌کرد.
+        // راه‌حل: به یه تلاش با سقف واقع‌بینانه‌تر (۷۰ ثانیه) برگشتیم و retry خودکار رو برداشتیم.
+        timeoutMs: 70000,
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
@@ -1645,7 +1660,7 @@ export default function ITAssistant() {
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-start" : "flex-end", alignItems: "flex-end", gap: 8 }}>
             {msg.role === "assistant" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>}
-            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: msg.role === "user" ? "18px 18px 18px 4px" : "18px 18px 4px 18px", background: msg.role === "user" ? "#0078d4" : "#ffffff", color: msg.role === "user" ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: "rtl", textAlign: "right" }}>{msg.role === "user" ? msg.content : renderMessage(msg.content)}</div>
+            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: msg.role === "user" ? "18px 18px 18px 4px" : "18px 18px 4px 18px", background: msg.role === "user" ? "#0078d4" : "#ffffff", color: msg.role === "user" ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: isLatinText(msg.content) ? "ltr" : "rtl", textAlign: isLatinText(msg.content) ? "left" : "right" }}>{msg.role === "user" ? msg.content : renderMessage(msg.content)}</div>
             {msg.role === "user" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>}
           </div>
         ))}
