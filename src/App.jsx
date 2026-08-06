@@ -1477,11 +1477,13 @@ export default function ITAssistant() {
   // چهارم اوت ۲۰۲۶: کاربر گزارش داد جواب‌های انگلیسی قبلاً چپ‌چین بودن، الان همیشه راست‌چین/RTL
   // نشون داده می‌شن (چون استایل بابل پیام قبلاً همیشه direction:"rtl" ثابت بود). این تابع تشخیص
   // می‌ده متن غالباً لاتین (انگلیسی) هست یا فارسی/عربی، تا بابل پیام بتونه جهت مناسب رو بگیره.
+  // ۵ اوت ۲۰۲۶: محافظه‌کارتر شد — همون دلیل رفع باگ backend (is_english_question) رو ببین.
+  // یه پیام خطای انگلیسی طولانی وسط یه جمله‌ی فارسی نباید کل بابل رو چپ‌چین کنه.
   const isLatinText = (text) => {
     const persianArabicChars = (text.match(/[\u0600-\u06FF\u0750-\u077F]/g) || []).length;
     const latinChars = (text.match(/[A-Za-z]/g) || []).length;
     if (latinChars === 0) return false;
-    return latinChars > persianArabicChars;
+    return persianArabicChars <= 3;
   };
 
   const sendMessage = async (text) => {
