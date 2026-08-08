@@ -394,13 +394,17 @@ const extractPhoneSearchTerm = (text) => {
 
 const searchPhoneDirectory = (docs, term) => {
   if (!term || term.length < 2) return [];
-  const termNorm = normalizeText(term);
+  // چون رکوردها به شکل «نام‌خانوادگی - نام» ذخیره شدن ولی کاربر معمولاً «نام نام‌خانوادگی» تایپ می‌کنه،
+  // باید هر کلمه‌ی جستجو رو جدا چک کنیم (نه کل عبارت رو یکجا) وگرنه با ترتیب برعکس چیزی پیدا نمی‌شه.
+  const termWords = normalizeText(term).split(/\s+/).filter(w => w.length >= 2);
+  if (termWords.length === 0) return [];
   const results = [];
   for (const doc of docs || []) {
     const lines = (doc.content || "").split("\n");
     for (const line of lines) {
       if (!/\d{3,5}/.test(line)) continue; // فقط خط‌هایی که به رکورد تلفن شبیهن (عدد داخلی توشونه)
-      if (normalizeText(line).includes(termNorm)) {
+      const lineNorm = normalizeText(line);
+      if (termWords.every(w => lineNorm.includes(w))) {
         results.push(line.trim());
       }
     }
