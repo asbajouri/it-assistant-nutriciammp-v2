@@ -46,6 +46,17 @@ const normalizeText = (t) => t
 
 const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weather|temperature/i.test(text);
 
+// === اکتیوسازی ویندوز/آفیس — تشخیص سوال و پاسخ قطعی با KMS مشروع شرکت (بدون AI، بدون دانلود فایل) ===
+const isActivationQuery = (text) =>
+  /(ویندوز|آفیس|windows|office)[\s\S]{0,15}(اکتیو|فعال)|(اکتیو|فعال)[\s\S]{0,15}(ویندوز|آفیس|windows|office)|\bactivation\b/i.test(text);
+const ACTIVATION_NETWORK_QUESTION = "آیا الان به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟";
+const isYesReply = (text) => /^\s*(بله|بلی|آره|اره|بعله|yes|y)\b/i.test(text.trim());
+const ACTIVATION_INTERNAL_ANSWER =
+  "✅ چون به شبکه داخلی شرکت وصل هستید، از سرور KMS داخلی شرکت استفاده کنید (بدون نیاز به دانلود هیچ فایلی):\n\n" +
+  "🔹 اکتیو کردن ویندوز:\nCMD رو با Run as Administrator باز کنید و این دستورات رو بزنید:\nslmgr /skms kms.danonemulti.net\nslmgr /ato\n\nبرای بررسی وضعیت لایسنس: slmgr /dli\n\n" +
+  "🔹 اکتیو کردن Office:\nبه پوشه نصب آفیس برید (مثلاً Office16 برای نسخه 2016/2019 — مسیر: C:\\Program Files\\Microsoft Office\\Office16) و این دستورات رو بزنید:\ncscript ospp.vbs /sethst:kms.danonemulti.net\ncscript ospp.vbs /act\n\n" +
+  "⚠️ همه‌ی دستورات باید توی CMD با دسترسی Administrator اجرا بشن.";
+
 const extractCity = (text) => {
   for (const c of IRAN_CITIES) {
     if (text.includes(c)) return c;
@@ -1496,6 +1507,27 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+
+    // اگه کاربر داشت به سوال «وصل به شبکه داخلی هستید؟» جواب بله می‌داد، مستقیم دستورات KMS مشروع شرکت رو بده (بدون AI، بدون دانلود فایل)
+    {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant" && lastMsg.content === ACTIVATION_NETWORK_QUESTION && isYesReply(userText)) {
+        setMessages([...newMessages, { role: "assistant", content: ACTIVATION_INTERNAL_ANSWER }]);
+        if (userId) saveMessage(userId, "assistant", ACTIVATION_INTERNAL_ANSWER);
+        logChat("activation_internal", "deterministic");
+        setLoading(false);
+        return;
+      }
+    }
+
+    // اگه سوال درباره اکتیو نبودن ویندوز/آفیس بود، مستقیم و بدون AI سوال وضعیت شبکه رو بپرس
+    if (isActivationQuery(userText)) {
+      setMessages([...newMessages, { role: "assistant", content: ACTIVATION_NETWORK_QUESTION }]);
+      if (userId) saveMessage(userId, "assistant", ACTIVATION_NETWORK_QUESTION);
+      logChat("activation_question", "deterministic");
+      setLoading(false);
+      return;
+    }
 
     // اگه سوال درباره داخلی/شماره تلفن بود، مستقیم توی سندها بگرد (بدون AI) — چون مدل‌ها توی partial match قابل‌اعتماد نیستن
     if (isPhoneQuery(userText)) {
