@@ -1365,6 +1365,37 @@ const handleFileUpload = async (e) => {
   );
 }
 
+// === تشخیص مسیر شبکه‌ای (UNC path مثل \\server\share\file) توی متن اطلاعیه و نمایش جدا با دکمه‌ی کپی ===
+// چون مرورگرها به دلایل امنیتی اجازه‌ی باز شدن لینک \\server\... رو از یه صفحه‌ی وب نمی‌دن،
+// این‌جوری حداقل مسیر رو مرتب و قابل‌کپی نشون می‌دیم.
+const UNC_PATH_REGEX = /^\\{1,2}[^\s\\]+(?:\\[^\s\\]+){2,}\\{0,2}$/;
+function AnnouncementContentBlock({ content }) {
+  const [copiedIdx, setCopiedIdx] = useState(null);
+  const lines = (content || "").split("\n");
+  return (
+    <>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        if (UNC_PATH_REGEX.test(trimmed)) {
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "#eef3f8", border: "1px solid #d6e2ec", borderRadius: 8, padding: "8px 10px", margin: "6px 0" }}>
+              <code dir="ltr" style={{ flex: 1, fontFamily: "Consolas, monospace", fontSize: 13, color: "#2c3e50", direction: "ltr", textAlign: "left", overflowWrap: "anywhere" }}>{trimmed}</code>
+              <button onClick={() => {
+                navigator.clipboard.writeText(trimmed).catch(() => {});
+                setCopiedIdx(i);
+                setTimeout(() => setCopiedIdx(null), 1500);
+              }} style={{ flexShrink: 0, background: copiedIdx === i ? "#28a745" : "#0078d4", color: "white", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                {copiedIdx === i ? "✓ کپی شد" : "📋 کپی مسیر"}
+              </button>
+            </div>
+          );
+        }
+        return <div key={i}>{line || "\u00A0"}</div>;
+      })}
+    </>
+  );
+}
+
 export default function ITAssistant() {
   const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، آفیس، نرم‌افزارها، شبکه یا درخواست‌های IT دارید بپرسید." };
 
@@ -1885,7 +1916,7 @@ export default function ITAssistant() {
               {announcements.map(item => (
                 <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 10, padding: 14, background: "#fafbfc" }}>
                   <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 15, marginBottom: 6 }}>{item.title}</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#333" }}>{item.content}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#333" }}><AnnouncementContentBlock content={item.content} /></div>
                   <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>{formatPersianDate(item.created_at)}</div>
                 </div>
               ))}
