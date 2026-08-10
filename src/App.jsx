@@ -585,6 +585,8 @@ function AdminPanel({ onClose, onDataChanged }) {
   const [annTitle, setAnnTitle] = useState("");
   const [annContent, setAnnContent] = useState("");
   const [annEditId, setAnnEditId] = useState(null);
+  const [forceLocalAI, setForceLocalAI] = useState(false);
+  const [forceLocalAILoading, setForceLocalAILoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -594,7 +596,31 @@ function AdminPanel({ onClose, onDataChanged }) {
     loadButtons();
     loadQA();
     loadAnn();
+    loadForceLocalAI();
   }, []);
+
+  const loadForceLocalAI = async () => {
+    try {
+      const data = await sbFetch("app_settings?key=eq.force_lmstudio_only&select=value");
+      setForceLocalAI(data?.[0]?.value === "true");
+    } catch {}
+  };
+
+  const toggleForceLocalAI = async () => {
+    setForceLocalAILoading(true);
+    const next = !forceLocalAI;
+    try {
+      await sbFetch("app_settings?key=eq.force_lmstudio_only", {
+        method: "PATCH",
+        body: JSON.stringify({ value: String(next) }),
+      });
+      setForceLocalAI(next);
+      showMsg(next ? "✅ فقط هوش مصنوعی محلی فعال شد" : "✅ برگشت به حالت عادی (همه‌ی provider ها)");
+    } catch {
+      showMsg("⚠️ خطا در تغییر تنظیمات");
+    }
+    setForceLocalAILoading(false);
+  };
 
   const loadButtons = async () => {
     try {
@@ -1116,6 +1142,22 @@ const handleFileUpload = async (e) => {
 
           {tab === "stats" && (
             <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: forceLocalAI ? "#fff4e5" : "#f0f7ff", border: `2px solid ${forceLocalAI ? "#f0a500" : "#0078d4"}33`, borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: forceLocalAI ? "#a05a00" : "#0078d4" }}>
+                    🖥️ فقط هوش مصنوعی محلی (LM Studio روی سرور خودمون)
+                  </div>
+                  <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                    {forceLocalAI
+                      ? "فعال — همه‌ی سوال‌ها فقط به مدل محلی می‌رن، بدون Groq/Gemini/OpenRouter. اگه VM آفلاین باشه، پیام خطا نشون داده می‌شه."
+                      : "غیرفعال — زنجیره‌ی عادی (Groq → LM Studio → Gemini → ...) استفاده می‌شه."}
+                  </div>
+                </div>
+                <button onClick={toggleForceLocalAI} disabled={forceLocalAILoading}
+                  style={{ flexShrink: 0, background: forceLocalAI ? "#f0a500" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, position: "relative", cursor: forceLocalAILoading ? "wait" : "pointer", transition: "background 0.2s" }}>
+                  <span style={{ position: "absolute", top: 3, [forceLocalAI ? "right" : "left"]: 3, width: 22, height: 22, borderRadius: "50%", background: "white", transition: "all 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                </button>
+              </div>
               {statsLoading ? (
                 <div style={{textAlign:"center",padding:40,color:"#666"}}>در حال بارگذاری...</div>
               ) : stats ? (
@@ -1419,7 +1461,7 @@ export default function ITAssistant() {
   const [buttons, setButtons] = useState([]);
   const bottomRef = useRef(null);
 
-  useEffect(() => { loadButtons(); loadAnnouncements(); }, []);
+  useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); }, []);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     try { sessionStorage.setItem("it_assistant_messages", JSON.stringify(messages)); } catch {}
@@ -1473,6 +1515,14 @@ export default function ITAssistant() {
     try {
       const data = await sbFetch("announcements?order=created_at.desc");
       setAnnouncements(data);
+    } catch {}
+  };
+
+  const [forceLocalAI, setForceLocalAI] = useState(false);
+  const loadForceLocalAI = async () => {
+    try {
+      const data = await sbFetch("app_settings?key=eq.force_lmstudio_only&select=value");
+      setForceLocalAI(data?.[0]?.value === "true");
     } catch {}
   };
 
@@ -1789,7 +1839,7 @@ export default function ITAssistant() {
       const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt }),
+        body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt, force_lmstudio: forceLocalAI }),
         // ⏱️ چهارم اوت ۲۰۲۶: با شناسه‌ی rid توی بک‌اند دیدیم بعضی جواب‌های موفق واقعی ۶۰ تا ۹۶
         // ثانیه طول کشیدن (نه به‌خاطر timeout هر provider، بلکه ازدحام CPU/شبکه‌ی رایگان HF وقتی
         // چند درخواست هم‌زمان میان). با timeoutMs قبلی (۴۵s) + retries:1 این اتفاق می‌افتاد:
@@ -1797,7 +1847,10 @@ export default function ITAssistant() {
         // در حالی که تلاش اول داشت پشت صحنه به یه جواب واقعی می‌رسید! این هم به کاربر خطای دروغین
         // نشون می‌داد، هم با ارسال دو درخواست هم‌زمان روی همون ۳ کلید Groq، rate limit رو بدتر می‌کرد.
         // راه‌حل: به یه تلاش با سقف واقع‌بینانه‌تر (۷۰ ثانیه) برگشتیم و retry خودکار رو برداشتیم.
-        timeoutMs: 70000,
+        // ⏱️ نهم اوت ۲۰۲۶: وقتی «فقط هوش مصنوعی محلی» فعاله، بک‌اند تا ۹۰ ثانیه منتظر جواب VM
+        // می‌مونه (بخش LM Studio Relay رو ببین) — سقف اینجا رو به ۱۰۰ ثانیه بردیم تا زودتر از
+        // بک‌اند خودش تسلیم نشه.
+        timeoutMs: forceLocalAI ? 100000 : 70000,
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
@@ -1902,7 +1955,7 @@ export default function ITAssistant() {
         </div>
       )}
 
-      {showAdminPanel && <AdminPanel onClose={() => { setShowAdminPanel(false); loadButtons(); }} onDataChanged={loadButtons} />}
+      {showAdminPanel && <AdminPanel onClose={() => { setShowAdminPanel(false); loadButtons(); loadForceLocalAI(); }} onDataChanged={() => { loadButtons(); loadForceLocalAI(); }} />}
 
       {showAnnouncements && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setShowAnnouncements(false)}>
