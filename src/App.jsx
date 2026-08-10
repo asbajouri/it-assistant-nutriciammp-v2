@@ -141,7 +141,7 @@ const BASE_KNOWLEDGE = `تو دستیار هوش مصنوعی واحد IT شرک
 
 قانون ۱.۱ — فرمت: این چت فقط متن ساده نمایش می‌ده، Markdown رندر نمی‌شه. هرگز از ** برای بولد، # برای هدر، یا نشانه‌های Markdown دیگه استفاده نکن — در غیر این صورت همون کاراکترهای خام (**، #) توی پیام نمایش داده میشن. برای تاکید از emoji یا خط جدید استفاده کن. اگه از سندی داده‌ای مثل *** (به معنی خالی/ثبت‌نشده) دیدی، توی جوابت به‌جاش بنویس «ثبت نشده» یا «موردی ندارد».
 
-قانون ۲ — حوزه تخصصی: حوزه تو بسیار گسترده‌ست — هر چیزی مرتبط با فناوری، نرم‌افزار، سخت‌افزار، شبکه، هوش مصنوعی (AI، LLM، Claude، ChatGPT، Gemini، Groq، MCP، API هوش مصنوعی، مدل‌های زبانی، prompt، agent)، برنامه‌نویسی، سیستم‌های سازمانی (راهکاران، ERP، CRM)، ابزارهای کاری و دیجیتال رو جواب بده. هوش مصنوعی و ابزارهای AI بخش مهمی از IT هستن و باید کامل توضیح بدی. فقط اگه سوال صددرصد غیرفناوری بود (سنجاق قفلی، آشپزی، پزشکی، ورزش)، مودبانه بگو این موضوع در حوزه IT نیست.
+قانون ۲ — حوزه تخصصی: حوزه تو بسیار گسترده‌ست — هر چیزی مرتبط با فناوری، نرم‌افزار، سخت‌افزار، شبکه، هوش مصنوعی (AI، LLM، Claude، ChatGPT، Gemini، Groq، MCP، API هوش مصنوعی، مدل‌های زبانی، prompt، agent)، برنامه‌نویسی، سیستم‌های سازمانی (راهکاران، ERP، CRM)، ابزارهای کاری و دیجیتال رو جواب بده. هوش مصنوعی و ابزارهای AI بخش مهمی از IT هستن و باید کامل توضیح بدی. اگه سوال صددرصد غیرفناوری بود (مثلاً پزشکی/سلامت/تغذیه مثل «سرما خوردم چیکار کنم»، آشپزی، ورزش، روانشناسی، حقوقی، مالی شخصی)، **باید مودبانه امتناع کنی، نه این‌که جواب واقعی بدی** — حتی اگه جواب رو بلدی و سوال بی‌ضرر به‌نظر می‌رسه. برای این حالت **دقیقاً و عیناً** این جمله رو (بدون تغییر، بدون اضافه کردن جواب واقعی قبل یا بعدش) به همون زبان سوال کاربر بده: «این موضوع در حوزه پشتیبانی IT نیست، متاسفانه نمی‌تونم کمکتون کنم.» — این جمله‌ی دقیق برای گزارش‌گیری آماری استفاده میشه، پس عبارت‌های مشابه یا بازنویسی‌شده قبول نیست.
 
 قانون ۲.۱ — استثنای اسناد آپلودشده: اگه بخش «اسناد آموزشی مرتبط» یا «سوال و جواب‌های اختصاصی شرکت» توی این پرامپت محتوایی داشت که به سوال کاربر مرتبط بود (مثلاً منوی غذای کانتین، لیست تلفن داخلی، اطلاعیه‌های داخلی، فرم‌های اداری)، حتماً و بدون هیچ قید و شرطی از همون اطلاعات جواب بده — حتی اگه موضوعش IT نباشه. قانون ۲ فقط برای سوالاتی هست که هیچ سندی درباره‌شون آپلود نشده؛ وقتی سند مرتبط پیدا شد، محدودیت حوزه IT اعمال نمیشه چون خود واحد IT/HR شرکت این اطلاعات رو برای پاسخ‌گویی به کارکنان توی سیستم گذاشته.
 
@@ -234,31 +234,31 @@ cscript ospp.vbs /act
 همیشه مودب، صبور و حرفه‌ای باش.
 
 === ابزار اکتیواسیون KMS ===
-اگر کاربر گفت ویندوز یا آفیسش اکتیو نیست یا سوالی درباره اکتیواسیون داشت:
+اگر کاربر گفت ویندوز یا آفیسش اکتیو نیست: این حالت الان با کد (بدون AI) مدیریت می‌شه —
+اول سوال شبکه‌ی داخلی پرسیده می‌شه، اگه جواب «بله» بود، دستورات slmgr مستقیم نشون داده می‌شه.
+اگه به این متن رسیدی، یعنی یا کاربر بعد از سوال شبکه چیزی غیر از «بله»/«خیر» واضح گفته، یا
+حالت «خیر» (خارج از شبکه‌ی داخلی) بوده. در این حالت هرگز لینک دانلود فایل .cmd یا دستور
+Run as Administrator نده (این عمداً از این پرامپت حذف شده و هرگز نباید برگرده) — فقط با
+احترام بگو برای اکتیوسازی از بیرون شبکه‌ی داخلی باید با واحد IT (servicenow.danonemulti.net)
+تیکت بزنه تا به‌صورت remote اکتیوش کنن.`;
 
-قدم اول: بپرس "آیا الان به شبکه داخلی شرکت (LAN یا VPN) وصل هستید؟"
-
-اگر جواب بله بود، دقیقاً این متن رو بده:
-✅ عالی! چون به شبکه داخلی شرکت وصل هستید، از ابزار KMS داخلی استفاده کنید.
-
-📥 لینک دانلود: https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/KMS%20Activator/Danone_Activation_Agent%20.cmd
-
-راهنمای اجرا:
-1. فایل را دانلود کنید
-2. روی فایل کلیک راست کنید
-3. گزینه Run as Administrator را انتخاب کنید
-4. منتظر بمانید تا عملیات تکمیل شود
-
-اگر جواب خیر بود، دقیقاً این متن رو بده:
-⚠️ نگران نباشید! ابزار مخصوص اینترنت عمومی هم داریم.
-
-📥 لینک دانلود: https://lphczmltctrqmkxktdzo.supabase.co/storage/v1/object/public/Active%20External/Activator_AIO.cmd
-
-راهنمای اجرا:
-1. فایل را دانلود کنید
-2. روی فایل کلیک راست کنید
-3. گزینه Run as Administrator را انتخاب کنید
-4. منتظر بمانید تا عملیات تکمیل شود`;
+// === فرمت تاریخ شمسی برای یک timestamp دلخواه (نه فقط امروز) — برای نمایش تاریخ اطلاعیه‌ها ===
+const formatPersianDate = (dateInput) => {
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return "";
+    const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+    const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(d);
+    const get = (type) => parts.find(p => p.type === type)?.value || "";
+    const toEnDigits = (s) => s.replace(/[۰-۹]/g, ch => "۰۱۲۳۴۵۶۷۸۹".indexOf(ch));
+    const y = parseInt(toEnDigits(get("year")), 10);
+    const m = parseInt(toEnDigits(get("month")), 10);
+    const day = parseInt(toEnDigits(get("day")), 10);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${day} ${monthNamesFa[m - 1]} ${y} — ساعت ${hh}:${mm}`;
+  } catch { return ""; }
+};
 
 // === تاریخ و روز جاری — محاسبه دقیق شمسی + هفته چندم ماه (برای اسنادی مثل منوی غذا که هفته‌شمارشون شنبه‌محوره) ===
 const getPersianDateContext = () => {
@@ -581,6 +581,10 @@ function AdminPanel({ onClose, onDataChanged }) {
   const [qaQ, setQaQ] = useState("");
   const [qaA, setQaA] = useState("");
   const [qaEditId, setQaEditId] = useState(null);
+  const [annList, setAnnList] = useState([]);
+  const [annTitle, setAnnTitle] = useState("");
+  const [annContent, setAnnContent] = useState("");
+  const [annEditId, setAnnEditId] = useState(null);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -589,6 +593,7 @@ function AdminPanel({ onClose, onDataChanged }) {
   useEffect(() => {
     loadButtons();
     loadQA();
+    loadAnn();
   }, []);
 
   const loadButtons = async () => {
@@ -677,6 +682,45 @@ function AdminPanel({ onClose, onDataChanged }) {
     try {
       await sbFetch(`custom_qa?id=eq.${id}`, { method: "DELETE" });
       await loadQA();
+      showMsg("✅ حذف شد");
+    } catch { showMsg("⚠️ خطا در حذف"); }
+  };
+
+  // نهم اوت ۲۰۲۶ — فیچر اطلاعیه‌ها: همون الگوی CRUD سوال/جواب، فقط جدول announcements
+  const loadAnn = async () => {
+    try {
+      const data = await sbFetch("announcements?order=created_at.desc");
+      setAnnList(data);
+    } catch { showMsg("⚠️ خطا در بارگذاری اطلاعیه‌ها"); }
+  };
+
+  const saveAnn = async () => {
+    if (!annTitle.trim() || !annContent.trim()) { showMsg("⚠️ عنوان و متن اطلاعیه را پر کنید"); return; }
+    setLoading(true);
+    try {
+      if (annEditId !== null) {
+        await sbFetch(`announcements?id=eq.${annEditId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title: annTitle, content: annContent })
+        });
+        setAnnEditId(null);
+      } else {
+        await sbFetch("announcements", {
+          method: "POST",
+          body: JSON.stringify({ title: annTitle, content: annContent })
+        });
+      }
+      setAnnTitle(""); setAnnContent("");
+      await loadAnn();
+      showMsg("✅ ذخیره شد");
+    } catch { showMsg("⚠️ خطا در ذخیره"); }
+    setLoading(false);
+  };
+
+  const deleteAnn = async (id) => {
+    try {
+      await sbFetch(`announcements?id=eq.${id}`, { method: "DELETE" });
+      await loadAnn();
       showMsg("✅ حذف شد");
     } catch { showMsg("⚠️ خطا در حذف"); }
   };
@@ -949,6 +993,23 @@ const handleFileUpload = async (e) => {
     setStatsLoading(true);
     try {
       const logs = await sbFetch("chat_logs?order=created_at.desc&limit=1000");
+
+      // شمارش واقعی کل ردیف‌ها — قبلاً total از همون ۱۰۰۰ ردیفِ نمونه محاسبه می‌شد
+      // و همیشه دقیقاً روی ۱۰۰۰ گیر می‌کرد. حالا با Prefer: count=exact یه کوئری جدا
+      // فقط برای شمارش دقیق (بدون دانلود کل داده) می‌زنیم.
+      let realTotal = logs.length;
+      try {
+        const countRes = await fetch(`${SUPABASE_URL}/rest/v1/chat_logs?select=id`, {
+          method: "HEAD",
+          headers: { ...sbHeaders, "Prefer": "count=exact" }
+        });
+        const range = countRes.headers.get("content-range"); // فرمت: "0-999/12345"
+        if (range && range.includes("/")) {
+          const total = range.split("/")[1];
+          if (total && total !== "*") realTotal = parseInt(total, 10);
+        }
+      } catch { /* اگه شمارش دقیق fail شد، همون logs.length رو نگه دار */ }
+
       const now = new Date();
       const today = now.toISOString().slice(0, 10);
       const todayLogs = logs.filter(l => l.created_at.slice(0, 10) === today);
@@ -983,7 +1044,7 @@ const handleFileUpload = async (e) => {
         daily[key] = logs.filter(l => l.created_at.slice(0, 10) === key).length;
       }
 
-      setStats({ totalAI, totalDB, totalGreeting, totalOOS, todayAI, todayDB, sources, daily, total: logs.length });
+      setStats({ totalAI, totalDB, totalGreeting, totalOOS, todayAI, todayDB, sources, daily, total: realTotal });
     } catch { showMsg("⚠️ خطا در بارگذاری آمار"); }
     setStatsLoading(false);
   };
@@ -1013,6 +1074,7 @@ const handleFileUpload = async (e) => {
           <button style={tabStyle("buttons")} onClick={() => setTab("buttons")}>🔘 دکمه‌های سریع</button>
           <button style={tabStyle("qa")} onClick={() => setTab("qa")}>💬 سوال و جواب اختصاصی</button>
           <button style={tabStyle("docs")} onClick={() => setTab("docs")}>📚 اسناد آموزشی</button>
+          <button style={tabStyle("announcements")} onClick={() => setTab("announcements")}>📢 اطلاعیه‌ها</button>
           <button style={tabStyle("stats")} onClick={() => { setTab("stats"); loadStats(); }}>📊 آمار</button>
         </div>
 
@@ -1269,6 +1331,34 @@ const handleFileUpload = async (e) => {
               ))}
             </>
           )}
+
+          {tab === "announcements" && (
+            <>
+              <div style={{ background: "#f8f9fa", borderRadius: 8, padding: 16, marginBottom: 20 }}>
+                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>{annEditId !== null ? "✏️ ویرایش اطلاعیه" : "➕ افزودن اطلاعیه جدید"}</h3>
+                <input value={annTitle} onChange={e => setAnnTitle(e.target.value)} placeholder="عنوان اطلاعیه..." style={inputStyle} />
+                <textarea value={annContent} onChange={e => setAnnContent(e.target.value)} placeholder="متن اطلاعیه را بنویسید..." rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveAnn} disabled={loading} style={{ padding: "9px 20px", background: "#0078d4", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>
+                    {loading ? "..." : annEditId !== null ? "ویرایش" : "افزودن"}
+                  </button>
+                  {annEditId !== null && <button onClick={() => { setAnnEditId(null); setAnnTitle(""); setAnnContent(""); }} style={{ padding: "9px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>انصراف</button>}
+                </div>
+              </div>
+              <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>اطلاعیه‌های ثبت‌شده ({annList.length})</h3>
+              {annList.length === 0 ? <p style={{ color: "#999", textAlign: "center", padding: 30 }}>هنوز اطلاعیه‌ای اضافه نشده</p> : annList.map((item) => (
+                <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, color: "#0078d4", marginBottom: 6 }}>📢 {item.title}</div>
+                  <div style={{ color: "#444", fontSize: 13, marginBottom: 6, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{item.content}</div>
+                  <div style={{ color: "#aaa", fontSize: 11, marginBottom: 10 }}>{new Date(item.created_at).toLocaleDateString("fa-IR-u-ca-persian")}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => { setAnnTitle(item.title); setAnnContent(item.content); setAnnEditId(item.id); }} style={{ padding: "6px 14px", background: "#ffc107", color: "#333", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>ویرایش</button>
+                    <button onClick={() => deleteAnn(item.id)} style={{ padding: "6px 14px", background: "#dc3545", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>حذف</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1291,12 +1381,14 @@ export default function ITAssistant() {
   const [loading, setLoading] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [announcements, setAnnouncements] = useState([]);
   const [adminPass, setAdminPass] = useState("");
   const [adminError, setAdminError] = useState("");
   const [buttons, setButtons] = useState([]);
   const bottomRef = useRef(null);
 
-  useEffect(() => { loadButtons(); }, []);
+  useEffect(() => { loadButtons(); loadAnnouncements(); }, []);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     try { sessionStorage.setItem("it_assistant_messages", JSON.stringify(messages)); } catch {}
@@ -1343,6 +1435,13 @@ export default function ITAssistant() {
     try {
       const data = await sbFetch("buttons?order=sort_order");
       setButtons(data);
+    } catch {}
+  };
+
+  const loadAnnouncements = async () => {
+    try {
+      const data = await sbFetch("announcements?order=created_at.desc");
+      setAnnouncements(data);
     } catch {}
   };
 
@@ -1490,6 +1589,22 @@ export default function ITAssistant() {
   };
 
   const cleanText = (text) => text.replace(/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0900-\u097f\u0e00-\u0e7f\u1e00-\u1eff\u0100-\u024f\u0400-\u04ff]/g, "");
+
+  // نهم اوت ۲۰۲۶: برچسب فارسی خوانا برای منبع هر جواب AI — زیر هر جواب نشون داده میشه
+  const sourceLabel = (source) => {
+    if (!source) return "هوش مصنوعی";
+    if (source.startsWith("groq")) return "Groq (llama-3.3-70b)";
+    if (source === "lmstudio_relay") return "LM Studio (سرور محلی شرکت)";
+    if (source === "gemini") return "Gemini";
+    if (source.startsWith("openrouter")) return "OpenRouter (" + source.split(":")[1] + ")";
+    if (source === "cloudflare") return "Cloudflare AI";
+    return source;
+  };
+
+  // نهم اوت ۲۰۲۶: تشخیص جمله‌ی دقیق امتناع (قانون ۲ توی BASE_KNOWLEDGE) — برای این‌که آمار
+  // «خارج از حوزه» توی پنل مدیریت واقعاً چیزی غیر از صفر نشون بده، باید این امتناع رو جدا از
+  // بقیه‌ی جواب‌های AI لاگ کنیم.
+  const isOutOfScopeReply = (text) => (text || "").includes("این موضوع در حوزه پشتیبانی IT نیست");
 
   // چهارم اوت ۲۰۲۶: کاربر گزارش داد جواب‌های انگلیسی قبلاً چپ‌چین بودن، الان همیشه راست‌چین/RTL
   // نشون داده می‌شن (چون استایل بابل پیام قبلاً همیشه direction:"rtl" ثابت بود). این تابع تشخیص
@@ -1656,9 +1771,12 @@ export default function ITAssistant() {
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
       const reply = cleanText(data.reply);
-      setMessages([...newMessages, { role: "assistant", content: reply }]);
-      if (userId) saveMessage(userId, "assistant", reply);
-      logChat(data.source || "ai", "ai");
+      const outOfScope = isOutOfScopeReply(reply);
+      // منبع فقط زیر جواب‌های واقعی AI نشون داده میشه، نه زیر پیام امتناع (که خودش گویاست)
+      const replyWithSource = outOfScope ? reply : `${reply}\n\n—\nمنبع: ${sourceLabel(data.source)}`;
+      setMessages([...newMessages, { role: "assistant", content: replyWithSource }]);
+      if (userId) saveMessage(userId, "assistant", replyWithSource);
+      logChat(outOfScope ? "out_of_scope" : (data.source || "ai"), "ai");
     } catch (err) {
       setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
     } finally { setLoading(false); }
@@ -1700,6 +1818,7 @@ export default function ITAssistant() {
             try { await sbFetch(`chat_history?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" }); } catch {}
           }
         }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
+        <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
       </div>
 
       <div style={{ padding: "10px 16px", background: "#fff", borderBottom: "1px solid #e0e0e0", display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1753,6 +1872,27 @@ export default function ITAssistant() {
       )}
 
       {showAdminPanel && <AdminPanel onClose={() => { setShowAdminPanel(false); loadButtons(); }} onDataChanged={loadButtons} />}
+
+      {showAnnouncements && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setShowAnnouncements(false)}>
+          <div style={{ background: "white", borderRadius: 14, width: "100%", maxWidth: 480, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>📢 اطلاعیه‌ها</div>
+              <button onClick={() => setShowAnnouncements(false)} style={{ background: "transparent", border: "none", color: "white", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {announcements.length === 0 && <p style={{ color: "#999", textAlign: "center", padding: 30 }}>اطلاعیه‌ای ثبت نشده است</p>}
+              {announcements.map(item => (
+                <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 10, padding: 14, background: "#fafbfc" }}>
+                  <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 15, marginBottom: 6 }}>{item.title}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#333" }}>{item.content}</div>
+                  <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>{formatPersianDate(item.created_at)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         * { box-sizing: border-box; }
