@@ -22,6 +22,7 @@
   .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; line-height: 1.7; font-size: 14px; white-space: pre-wrap; }
   .msg.user { align-self: flex-end; background: #1a7a3c; color: white; border-bottom-left-radius: 2px; }
   .msg.assistant { align-self: flex-start; background: white; color: #222; border: 1px solid #e0e0e0; border-bottom-right-radius: 2px; }
+  .msg .src { display: block; margin-top: 6px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 4px; }
   .msg.error { align-self: center; background: #fdecea; color: #a83232; border: 1px solid #f5c6cb; font-size: 13px; }
   .msg.loading { align-self: flex-start; background: white; border: 1px solid #e0e0e0; color: #999; font-size: 13px; }
   #inputBar { display: flex; gap: 8px; padding: 12px; background: white; border-top: 1px solid #e0e0e0; }
@@ -55,10 +56,16 @@
   const sendBtn = document.getElementById("sendBtn");
   let history = [];
 
-  function addMessage(role, text) {
+  function addMessage(role, text, source) {
     const div = document.createElement("div");
     div.className = "msg " + role;
     div.textContent = text;
+    if (source) {
+      const srcEl = document.createElement("span");
+      srcEl.className = "src";
+      srcEl.textContent = "منبع: " + source;
+      div.appendChild(srcEl);
+    }
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return div;
@@ -88,7 +95,8 @@
       if (!res.ok || !data.reply) {
         addMessage("error", "⚠️ " + (data.error || "خطای نامشخص از سرور"));
       } else {
-        addMessage("assistant", data.reply);
+        const modelName = (data.source || "").split(":")[1] || data.source || "نامشخص";
+        addMessage("assistant", data.reply, modelName);
         history.push({ role: "assistant", content: data.reply });
       }
     } catch (e) {
