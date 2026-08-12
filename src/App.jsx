@@ -610,14 +610,18 @@ function AdminPanel({ onClose, onDataChanged }) {
     setForceLocalAILoading(true);
     const next = !forceLocalAI;
     try {
-      await sbFetch("app_settings?key=eq.force_lmstudio_only", {
-        method: "PATCH",
-        body: JSON.stringify({ value: String(next) }),
+      // از upsert استفاده می‌کنیم (نه PATCH ساده) چون اگه ردیف هنوز توی جدول ساخته نشده باشه،
+      // PATCH بی‌خطا ولی بدون هیچ تاثیری برمی‌گرده (صفر ردیف مچ میشه) و مقدار هیچ‌وقت ذخیره نمیشه —
+      // upsert در هر دو حالت (ردیف هست/نیست) درست کار می‌کنه.
+      await sbFetch("app_settings", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "force_lmstudio_only", value: String(next) }),
       });
       setForceLocalAI(next);
       showMsg(next ? "✅ فقط هوش مصنوعی محلی فعال شد" : "✅ برگشت به حالت عادی (همه‌ی provider ها)");
-    } catch {
-      showMsg("⚠️ خطا در تغییر تنظیمات");
+    } catch (e) {
+      showMsg("⚠️ خطا در تغییر تنظیمات: " + e.message);
     }
     setForceLocalAILoading(false);
   };
@@ -1850,7 +1854,7 @@ export default function ITAssistant() {
         // ⏱️ نهم اوت ۲۰۲۶: وقتی «فقط هوش مصنوعی محلی» فعاله، بک‌اند تا ۹۰ ثانیه منتظر جواب VM
         // می‌مونه (بخش LM Studio Relay رو ببین) — سقف اینجا رو به ۱۰۰ ثانیه بردیم تا زودتر از
         // بک‌اند خودش تسلیم نشه.
-        timeoutMs: forceLocalAI ? 100000 : 70000,
+        timeoutMs: forceLocalAI ? 130000 : 70000,
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
