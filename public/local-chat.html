@@ -82,7 +82,7 @@
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 100000);
+      const timeout = setTimeout(() => controller.abort(), 130000);
       const res = await fetch(API_URL + "/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
