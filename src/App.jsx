@@ -412,6 +412,68 @@ const searchPhoneDirectory = (docs, term) => {
   return [...new Set(results)]; // حذف رکورد تکراری (اگه چند سند مشترک باشن)
 };
 
+// === جستجوی قطعی ایمیل/مشخصات کارمند (بدون AI) — ۱۳ اوت ۲۰۲۶ ===
+// مشکل: کاربر معمولاً اسم رو فارسی تایپ می‌کنه («امید گوهری») ولی رکورد اکسل (خروجی AD) لاتینه
+// («Omid Gohari») — چون دو الفبای متفاوتن، تطبیق رشته‌ای ساده (مثل searchPhoneDirectory) کار
+// نمی‌کنه، و مدل‌های AI هم روی یه جدول بزرگ (که ممکنه توسط سقف کاراکتری بک‌اند هم قطع شده باشه)
+// قابل‌اعتماد نیستن. راه‌حل: هر کلمه‌ی فارسی جستجو رو با یه نگاشت ساده به لاتین تبدیل می‌کنیم، بعد
+// به‌جای تطبیق حرف‌به‌حرف دقیق (که به‌خاطر مصوت‌های نانوشته‌ی فارسی/عربی هیچ‌وقت قطعی نیست — مثلاً
+// «امید» می‌تونه Omid یا Amid نوشته بشه)، «اسکلت بی‌صدا» (حذف مصوت‌ها) رو مقایسه می‌کنیم.
+const FA_TO_LATIN_MAP = {
+  "خ": "kh", "ش": "sh", "ژ": "zh", "چ": "ch", "غ": "gh", "ق": "gh",
+  "ا": "a", "آ": "a", "ب": "b", "پ": "p", "ت": "t", "ث": "s", "ج": "j",
+  "ح": "h", "د": "d", "ذ": "z", "ر": "r", "ز": "z", "س": "s", "ص": "s",
+  "ض": "z", "ط": "t", "ظ": "z", "ع": "a", "ف": "f", "ک": "k", "گ": "g",
+  "ل": "l", "م": "m", "ن": "n", "و": "o", "ه": "h", "ی": "i", "ئ": "i", "ء": "",
+};
+const transliterateFaToLatin = (text) => text.split("").map((ch) => (ch in FA_TO_LATIN_MAP ? FA_TO_LATIN_MAP[ch] : ch)).join("");
+const consonantSkeleton = (word) => word.toLowerCase().replace(/[^a-z]/g, "").replace(/[aeiou]/g, "");
+
+// یه کلمه‌ی جستجو (فارسی یا لاتین) رو با یه کلمه از رکورد (توکن لاتین توی سند) مقایسه می‌کنه
+const wordsLikelyMatch = (queryWord, dataWord) => {
+  const qLower = queryWord.toLowerCase();
+  const dLower = dataWord.toLowerCase();
+  if (qLower.length >= 2 && (dLower.includes(qLower) || qLower.includes(dLower))) return true;
+  const qSkeleton = consonantSkeleton(transliterateFaToLatin(queryWord));
+  const dSkeleton = consonantSkeleton(dataWord);
+  if (qSkeleton.length < 2 || dSkeleton.length < 2) return false;
+  return qSkeleton === dSkeleton || dSkeleton.startsWith(qSkeleton) || qSkeleton.startsWith(dSkeleton);
+};
+
+const isEmployeeLookupQuery = (text) =>
+  /ایمیل|پست\s*الکترونیک|e-?mail/i.test(text) &&
+  !/(فراموش|بازیابی|reset|forgot|عوض\s*کن|change).{0,15}(ایمیل|پسورد|پسوورد|رمز|password)/i.test(text);
+
+const EMPLOYEE_QUERY_STOPWORDS = ["ایمیل", "پست", "الکترونیک", "آدرس", "چیه", "چیست", "کیه", "کجاست", "هست", "است", "بده", "رو", "را", "لطفا", "لطفاً", "آقای", "خانم", "جناب", "سرکار", "بگو", "مشخصات"];
+const extractEmployeeSearchTerm = (text) => {
+  let t = text;
+  for (const w of EMPLOYEE_QUERY_STOPWORDS) {
+    t = t.replace(new RegExp(w, "gi"), " ");
+  }
+  t = t.replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
+  return t;
+};
+
+const searchEmployeeDirectory = (docs, term) => {
+  if (!term || term.trim().length < 2) return [];
+  const words = term.split(/\s+/).map((w) => w.trim()).filter((w) => w.length >= 2);
+  if (!words.length) return [];
+  const results = [];
+  for (const doc of docs || []) {
+    if (!/\(جدول با هدر\)/.test(doc.content || "")) continue;
+    const lines = (doc.content || "").split("\n");
+    for (const line of lines) {
+      if (!line.includes("@")) continue; // فقط ردیف‌هایی که واقعاً ایمیل دارن
+      const lineTokens = line.match(/[A-Za-z]+/g) || [];
+      if (!lineTokens.length) continue;
+      if (words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) {
+        results.push(line.trim());
+      }
+    }
+  }
+  return [...new Set(results)];
+};
+
 // یه خط CSV رو با رعایت quoteها پارس می‌کنه (خروجی SheetJS ممکنه فیلدهای دارای کاما رو داخل " " بذاره)
 const parseCsvLine = (line) => {
   const result = [];
@@ -910,6 +972,41 @@ function AdminPanel({ onClose, onDataChanged }) {
     return entries;
   };
 
+  // ۱۳ اوت ۲۰۲۶: تشخیص جدول‌های عمومی «با سرستون» (مثل خروجی Active Directory: Display name/
+  // User principal name/Title/Department) و تبدیل هر ردیف به یه خط خودکفا با برچسب فیلد
+  // ("Display name: Omid Gohari — User principal name: omid.gohari@...")، به‌جای CSV خام.
+  // چرا لازم بود: CSV خام وقتی طولانیه (چندصد ردیف) هم توسط سقف کاراکتری بک‌اند (GROQ_BUDGET و
+  // سقف کلی ۲۴۰۰۰ کاراکتری system_prompt) از وسط قطع می‌شه و ردیف‌های آخر گم می‌شن، هم مدل‌ها
+  // توی تطبیق ستون‌به‌ستون یه ردیف CSV طولانی قابل‌اعتماد نیستن. جدول با سرستون از این جدول
+  // تلفن (parseDirectoryLikeSheet، که فقط برای ستون عددی مثل داخلی طراحی شده) جداست چون اینجا
+  // هیچ ستونی لزوماً عددی نیست.
+  const HEADER_KEYWORDS = /نام|name|ایمیل|email|mail|تلفن|phone|mobile|شماره|سمت|title|واحد|دپارتمان|department|شرکت|company|سازمان/i;
+  const parseHeaderTableSheet = (rows) => {
+    if (!rows.length) return null;
+    const header = rows[0].map((h) => (h === undefined || h === null ? "" : String(h).trim()));
+    const nonEmptyHeaders = header.filter(Boolean);
+    if (nonEmptyHeaders.length < 2) return null;
+    if (!nonEmptyHeaders.some((h) => HEADER_KEYWORDS.test(h))) return null;
+    // اگه اکثر ستون‌ها اصلاً عنوان ندارن، این احتمالاً یه جدول واقعی با سرستون نیست
+    if (nonEmptyHeaders.length < header.length * 0.5) return null;
+
+    const dataRows = rows.slice(1);
+    const entries = [];
+    dataRows.forEach((row) => {
+      const parts = [];
+      header.forEach((h, idx) => {
+        if (!h) return;
+        const v = row[idx];
+        const vStr = v === undefined || v === null ? "" : String(v).trim();
+        if (vStr) parts.push(`${h}: ${vStr}`);
+      });
+      if (parts.length >= 2) entries.push(parts.join(" — "));
+    });
+    // اگه تعداد ردیف‌های معتبر خیلی کم بود، این احتمالاً یه جدول با سرستون واقعی نیست — بذار fallback عادی (CSV) اجرا بشه
+    if (entries.length < Math.max(3, dataRows.length * 0.3)) return null;
+    return entries;
+  };
+
   // یه فایل رو می‌خونه و متن استخراج‌شده‌ش رو برمی‌گردونه (بدون تغییر docContent — برای استفاده در آپلود چندتایی)
   const extractSingleFileContent = async (file) => {
     const ext = file.name.split(".").pop().toLowerCase();
@@ -979,8 +1076,13 @@ function AdminPanel({ onClose, onDataChanged }) {
           if (directoryEntries) {
             fullText += `=== شیت: ${name} (لیست تلفن/داخلی) ===\n${directoryEntries.join("\n")}\n\n`;
           } else {
-            const csv = XLSX.utils.sheet_to_csv(sheet);
-            fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+            const headerEntries = parseHeaderTableSheet(rows);
+            if (headerEntries) {
+              fullText += `=== شیت: ${name} (جدول با هدر) ===\n${headerEntries.join("\n")}\n\n`;
+            } else {
+              const csv = XLSX.utils.sheet_to_csv(sheet);
+              fullText += `=== شیت: ${name} ===\n${csv}\n\n`;
+            }
           }
         });
         return { success: true, text: fullText.trim() };
@@ -1494,6 +1596,29 @@ const handleFileUpload = async (e) => {
 // چون مرورگرها به دلایل امنیتی اجازه‌ی باز شدن لینک \\server\... رو از یه صفحه‌ی وب نمی‌دن،
 // این‌جوری حداقل مسیر رو مرتب و قابل‌کپی نشون می‌دیم.
 const UNC_PATH_REGEX = /^\\{1,2}[^\s\\]+(?:\\[^\s\\]+){2,}\\{0,2}$/;
+// ۱۳ اوت ۲۰۲۶: لینک‌های http(s) توی اطلاعیه‌ها قبلاً فقط متن ساده بودن (قابل کلیک نبودن، کاربر
+// باید دستی کپی/پیست می‌کرد). این regex هر URL داخل یه خط رو پیدا می‌کنه (نه فقط وقتی کل خط
+// خودِ لینکه) و به <a target="_blank"> تبدیلش می‌کنه؛ بقیه‌ی متن همون خط دست‌نخورده می‌مونه.
+const URL_REGEX = /(https?:\/\/[^\s<>"')]+)/g;
+function renderLineWithLinks(line, keyPrefix) {
+  const parts = line.split(URL_REGEX);
+  if (parts.length === 1) return line || "\u00A0";
+  return parts.map((part, idx) => {
+    if (/^https?:\/\//.test(part)) {
+      // علائم نگارشی انتهای جمله (نقطه/ویرگول/پرانتز بسته) که گاهی به لینک می‌چسبن رو از خودِ href جدا می‌کنیم
+      const trailingMatch = part.match(/[.,;:!?)\]]+$/);
+      const trailing = trailingMatch ? trailingMatch[0] : "";
+      const href = trailing ? part.slice(0, -trailing.length) : part;
+      return (
+        <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate" }}>
+          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#0078d4", wordBreak: "break-all" }}>{href}</a>
+          {trailing}
+        </span>
+      );
+    }
+    return <span key={keyPrefix + "-" + idx}>{part}</span>;
+  });
+}
 function AnnouncementContentBlock({ content }) {
   const [copiedIdx, setCopiedIdx] = useState(null);
   const lines = (content || "").split("\n");
@@ -1515,7 +1640,7 @@ function AnnouncementContentBlock({ content }) {
             </div>
           );
         }
-        return <div key={i}>{line || "\u00A0"}</div>;
+        return <div key={i} style={{ overflowWrap: "anywhere" }}>{renderLineWithLinks(line, "l" + i)}</div>;
       })}
     </>
   );
@@ -1854,6 +1979,27 @@ export default function ITAssistant() {
           return;
         }
         // اگه هیچ match‌ای نبود (مثلاً غلط املایی یا سوال اصلاً درباره تلفن نبود)، بذار جریان عادی AI ادامه پیدا کنه
+      } catch (e) {
+        // بذار جریان عادی AI ادامه پیدا کنه
+      }
+    }
+
+    // اگه سوال درباره ایمیل کارمند بود، مستقیم توی سندهای «جدول با هدر» (خروجی اکسل AD/HR) بگرد —
+    // چون اسم فارسی تایپ‌شده با اسم لاتین توی رکورد فرق داره، اینجا تطبیق تقریبی (transliteration) هم انجام میشه
+    if (isEmployeeLookupQuery(userText)) {
+      try {
+        const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
+        const term = extractEmployeeSearchTerm(userText);
+        const matches = searchEmployeeDirectory(docs, term);
+        if (matches.length > 0) {
+          const reply = `📧 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("employee_lookup", "deterministic");
+          setLoading(false);
+          return;
+        }
+        // اگه هیچ match‌ای نبود، بذار جریان عادی AI ادامه پیدا کنه (شاید سند اصلاً «جدول با هدر» نیست)
       } catch (e) {
         // بذار جریان عادی AI ادامه پیدا کنه
       }
