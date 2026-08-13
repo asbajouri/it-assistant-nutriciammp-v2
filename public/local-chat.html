@@ -71,6 +71,17 @@
     return div;
   }
 
+  // ۱۳ اوت ۲۰۲۶: این صفحه مستقیم به مدل محلی (بدون system_prompt کامل/قوانین BASE_KNOWLEDGE
+  // که میگه «هرگز Markdown استفاده نکن») وصل میشه، پس مدل گاهی از **بولد**/# هدر استفاده می‌کنه.
+  // چون این صفحه متن رو خام (textContent) نشون می‌ده، این نشونه‌ها رندر نمی‌شدن و عیناً روی
+  // صفحه می‌موندن (**مثل این**). همون پاک‌سازی‌ای که توی پنل اصلی دستیار هست، اینجا هم اضافه شد.
+  function stripMarkdown(text) {
+    return text
+      .replace(/\*\*\*/g, "—")
+      .replace(/\*\*/g, "")
+      .replace(/^#{1,6}\s*/gm, "");
+  }
+
   async function send() {
     const text = inputBox.value.trim();
     if (!text) return;
@@ -95,8 +106,11 @@
       if (!res.ok || !data.reply) {
         addMessage("error", "⚠️ " + (data.error || "خطای نامشخص از سرور"));
       } else {
-        const modelName = (data.source || "").split(":")[1] || data.source || "نامشخص";
-        addMessage("assistant", data.reply, modelName);
+        // ⚠️ ۱۳ اوت ۲۰۲۶: قبلاً وقتی مدل از سمت VM ارسال نمی‌شد، اینجا "نامشخص"/"؟" نشون داده
+        // می‌شد. بک‌اند الان همیشه یه اسم مدل واقعی (حداقل پیش‌فرض مستندشده) برمی‌گردونه.
+        const modelName = (data.source || "").split(":")[1];
+        const label = modelName ? `سرور لوکال — مدل: ${modelName}` : "سرور لوکال";
+        addMessage("assistant", stripMarkdown(data.reply), label);
         history.push({ role: "assistant", content: data.reply });
       }
     } catch (e) {
