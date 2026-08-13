@@ -388,7 +388,7 @@ const extractPhoneSearchTerm = (text) => {
   for (const w of PHONE_QUERY_STOPWORDS) {
     t = t.replace(new RegExp(w, "gi"), " ");
   }
-  t = t.replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
   return t;
 };
 
@@ -450,8 +450,35 @@ const extractEmployeeSearchTerm = (text) => {
   for (const w of EMPLOYEE_QUERY_STOPWORDS) {
     t = t.replace(new RegExp(w, "gi"), " ");
   }
-  t = t.replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
   return t;
+};
+
+// ۱۳ اوت ۲۰۲۶: وقتی سوال ادامه‌ی سوال قبلیه و اسم رو تکرار نمی‌کنه («ایمیلش چیه؟»، «داخلی‌ش
+// چنده؟»)، extractPhoneSearchTerm/extractEmployeeSearchTerm روی پیام فعلی هیچ اسمی گیرشون
+// نمیاد (چون توی پیام فعلی اصلاً اسمی نیست، فقط ضمیر «ش» چسبیده به کلمه) — نتیجه‌ش این بود که
+// جستجوی قطعی هیچ‌وقت match پیدا نمی‌کرد و کار می‌افتاد دست AI، که هم گاهی جواب اشتباه می‌ساخت
+// (مثلاً «داخلی ثبت نشده» با اینکه واقعاً بود) هم گاهی دامنه‌ی ایمیل رو از خودش می‌ساخت
+// (hallucination). این تابع اگه استخراج از پیام فعلی خالی بود، برمی‌گرده توی چند پیام قبلی
+// مکالمه (حداکثر ۶ تا، کاربر یا دستیار) دنبال یه اسم می‌گرده — با همون تابع استخراج.
+const GENERIC_NAME_STOPWORDS = [...new Set([...PHONE_QUERY_STOPWORDS, ...EMPLOYEE_QUERY_STOPWORDS])];
+const extractGenericNameTerm = (text) => {
+  let t = text;
+  for (const w of GENERIC_NAME_STOPWORDS) {
+    t = t.replace(new RegExp(w, "gi"), " ");
+  }
+  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
+  return t;
+};
+
+const resolveFollowupSearchTerm = (currentTerm, recentMessages) => {
+  if (currentTerm && currentTerm.trim().length >= 2) return currentTerm;
+  const history = (recentMessages || []).filter(m => m && m.role === "user").slice(-6);
+  for (let i = history.length - 1; i >= 0; i--) {
+    const candidate = extractGenericNameTerm(history[i].content || "");
+    if (candidate && candidate.trim().length >= 2) return candidate;
+  }
+  return currentTerm;
 };
 
 const searchEmployeeDirectory = (docs, term) => {
@@ -1609,9 +1636,16 @@ function renderLineWithLinks(line, keyPrefix) {
       const trailingMatch = part.match(/[.,;:!?)\]]+$/);
       const trailing = trailingMatch ? trailingMatch[0] : "";
       const href = trailing ? part.slice(0, -trailing.length) : part;
+      // ۱۳ اوت ۲۰۲۶: قبلاً لینک با word-break می‌شکست، ولی بازم بخشیش بیرون کادر می‌افتاد (چون
+      // خودِ کادر flex بود و به عرض محتوای بدون‌شکست کشیده می‌شد). حالا لینک با فونت کوچیک‌تر
+      // توی یه خط جا میشه؛ اگه بازم جا نشد (URL خیلی بلند)، به‌جای شکستن/سرریز، خودِ لینک
+      // اسکرول افقی داخلی می‌گیره — هیچ‌وقت از مرز کادر بیرون نمی‌زنه.
       return (
-        <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate" }}>
-          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#0078d4", fontWeight: 700, textDecoration: "underline", wordBreak: "break-all", overflowWrap: "anywhere" }}>{href}</a>
+        <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate", display: "inline-block", maxWidth: "100%", verticalAlign: "bottom" }}>
+          <a href={href} target="_blank" rel="noopener noreferrer"
+            style={{ display: "block", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", color: "#0078d4", fontWeight: 700, textDecoration: "underline", fontSize: 11 }}>
+            {href}
+          </a>
           {trailing}
         </span>
       );
@@ -1980,7 +2014,7 @@ export default function ITAssistant() {
     if (isPhoneQuery(userText)) {
       try {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
-        const term = extractPhoneSearchTerm(userText);
+        const term = resolveFollowupSearchTerm(extractPhoneSearchTerm(userText), messages);
         const matches = searchPhoneDirectory(docs, term);
         if (matches.length > 0) {
           const reply = `📞 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
@@ -2001,7 +2035,7 @@ export default function ITAssistant() {
     if (isEmployeeLookupQuery(userText)) {
       try {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
-        const term = extractEmployeeSearchTerm(userText);
+        const term = resolveFollowupSearchTerm(extractEmployeeSearchTerm(userText), messages);
         const matches = searchEmployeeDirectory(docs, term);
         if (matches.length > 0) {
           const reply = `📧 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
