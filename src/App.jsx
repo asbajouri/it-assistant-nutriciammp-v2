@@ -1778,7 +1778,14 @@ export default function ITAssistant() {
   const sourceLabel = (source) => {
     if (!source) return "هوش مصنوعی";
     if (source.startsWith("groq")) return "Groq (llama-3.3-70b)";
-    if (source === "lmstudio_relay") return "LM Studio (سرور محلی شرکت)";
+    // ⚠️ ۱۳ اوت ۲۰۲۶: قبلاً اینجا با === "lmstudio_relay" چک می‌شد، ولی source واقعی همیشه
+    // به‌شکل "lmstudio_relay:اسم‌مدل" برمی‌گرده (نه دقیقاً "lmstudio_relay") — پس این چک هیچ‌وقت
+    // مچ نمی‌شد و به‌جاش رشته‌ی خام فنی مثل "lmstudio_relay:?" مستقیم نمایش داده می‌شد. حالا
+    // startsWith چک می‌کنه و یه برچسب خوانا با اسم مدل (اگه بک‌اند فرستاده باشه) می‌سازه.
+    if (source.startsWith("lmstudio_relay")) {
+      const model = source.split(":")[1];
+      return model ? `گرفته شده از سرور لوکال (مدل: ${model})` : "گرفته شده از سرور لوکال";
+    }
     if (source === "gemini") return "Gemini";
     if (source.startsWith("openrouter")) return "OpenRouter (" + source.split(":")[1] + ")";
     if (source === "cloudflare") return "Cloudflare AI";
