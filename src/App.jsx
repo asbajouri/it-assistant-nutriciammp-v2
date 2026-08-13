@@ -1611,7 +1611,7 @@ function renderLineWithLinks(line, keyPrefix) {
       const href = trailing ? part.slice(0, -trailing.length) : part;
       return (
         <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate" }}>
-          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#0078d4", wordBreak: "break-all" }}>{href}</a>
+          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#0078d4", fontWeight: 700, textDecoration: "underline", wordBreak: "break-all", overflowWrap: "anywhere" }}>{href}</a>
           {trailing}
         </span>
       );
@@ -1871,7 +1871,12 @@ export default function ITAssistant() {
       // لایه‌ی دفاعی: گاهی مدل‌ها (به‌خصوص Groq) سرسری کاراکتر/کلمه از زبان‌های دیگه قاطی جواب فارسی می‌کنن
       .replace(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u0900-\u097f]/g, "") // چینی/ژاپنی/کره‌ای/هندی
       .replace(/[أإ]/g, "ا").replace(/ؤ/g, "و").replace(/[ئي]/g, "ی").replace(/ة/g, "ه").replace(/ك/g, "ک"); // حروف عربی که فارسی نیست
-    const parts = cleaned.split(/(https?:\/\/\S+)/g);
+    // ۱۳ اوت ۲۰۲۶: نتایج جستجوی ایمیل کارمند (searchEmployeeDirectory) شامل آدرس ایمیل خام
+    // (بدون http://) هست؛ regex قبلی فقط لینک‌های http(s) رو تشخیص می‌داد. حالا ایمیل هم جدا
+    // تشخیص داده می‌شه و به‌جای متن ساده، لینک mailto: با استایل پررنگ/آبی نشون داده می‌شه —
+    // هم قابل کلیک (باز کردن کلاینت ایمیل)، هم چون متن انتخاب‌پذیره قابل کپی.
+    const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+    const parts = cleaned.split(new RegExp(`(https?:\\/\\/\\S+|${EMAIL_REGEX.source})`, "g"));
     return parts.map((part, i) => {
       if (part.startsWith("http://") || part.startsWith("https://")) {
         const cleanUrl = part.replace(/[.,،؟!)\]]+$/, "");
@@ -1881,6 +1886,13 @@ export default function ITAssistant() {
             download={isDownload ? true : undefined}
             style={{ color: "#0078d4", textDecoration: "underline", fontWeight: 600 }}>
             {isDownload ? "📥 دانلود فایل" : cleanUrl}
+          </a>
+        );
+      }
+      if (new RegExp(`^${EMAIL_REGEX.source}$`).test(part)) {
+        return (
+          <a key={i} href={`mailto:${part}`} dir="ltr" style={{ color: "#0078d4", fontWeight: 700, textDecoration: "underline", unicodeBidi: "isolate" }}>
+            {part}
           </a>
         );
       }
@@ -2223,9 +2235,9 @@ export default function ITAssistant() {
             <div style={{ overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               {announcements.length === 0 && <p style={{ color: "#999", textAlign: "center", padding: 30 }}>اطلاعیه‌ای ثبت نشده است</p>}
               {announcements.map(item => (
-                <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 10, padding: 14, background: "#fafbfc" }}>
+                <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 10, padding: 14, background: "#fafbfc", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 15, marginBottom: 6 }}>{item.title}</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#333" }}><AnnouncementContentBlock content={item.content} /></div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#333", overflowWrap: "anywhere" }}><AnnouncementContentBlock content={item.content} /></div>
                   <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>{formatPersianDate(item.created_at)}</div>
                 </div>
               ))}
