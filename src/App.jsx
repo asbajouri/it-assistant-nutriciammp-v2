@@ -571,6 +571,17 @@ const formatMenuReply = (target, sheetTitle, row) => {
   return lines.join("\n");
 };
 
+// 🎚️ ۱۳ اوت ۲۰۲۶: لیست پیش‌فرض اولویت provider ها — دقیقاً باید با DEFAULT_PROVIDER_ORDER
+// توی main.py هم‌ارز باشه (همون ۵ کلید، هر ترتیبی). لیبل‌ها فقط برای نمایش توی پنل مدیریتن.
+const PROVIDER_LABELS = {
+  groq: "⚡ Groq",
+  lmstudio: "🖥️ LM Studio (VM محلی)",
+  gemini: "✨ Gemini",
+  openrouter: "🔀 OpenRouter",
+  cloudflare: "☁️ Cloudflare",
+};
+const DEFAULT_PROVIDER_ORDER = ["groq", "lmstudio", "gemini", "openrouter", "cloudflare"];
+
 function AdminPanel({ onClose, onDataChanged }) {
   const [tab, setTab] = useState("buttons");
   const [buttons, setButtons] = useState([]);
@@ -587,6 +598,8 @@ function AdminPanel({ onClose, onDataChanged }) {
   const [annEditId, setAnnEditId] = useState(null);
   const [forceLocalAI, setForceLocalAI] = useState(false);
   const [forceLocalAILoading, setForceLocalAILoading] = useState(false);
+  const [providerOrder, setProviderOrder] = useState(DEFAULT_PROVIDER_ORDER);
+  const [providerOrderLoading, setProviderOrderLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -597,7 +610,51 @@ function AdminPanel({ onClose, onDataChanged }) {
     loadQA();
     loadAnn();
     loadForceLocalAI();
+    loadProviderOrder();
   }, []);
+
+  // 🎚️ ۱۳ اوت ۲۰۲۶: اولویت provider ها — دقیقاً همون الگوی force_lmstudio_only (کلید/مقدار توی
+  // app_settings)، فقط این‌بار مقدار یه JSON array سریالایز‌شده به‌جای "true"/"false" هست.
+  const loadProviderOrder = async () => {
+    try {
+      const data = await sbFetch("app_settings?key=eq.provider_priority&select=value");
+      const raw = data?.[0]?.value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length === DEFAULT_PROVIDER_ORDER.length
+            && new Set(parsed).size === DEFAULT_PROVIDER_ORDER.length
+            && parsed.every(p => DEFAULT_PROVIDER_ORDER.includes(p))) {
+          setProviderOrder(parsed);
+          return;
+        }
+      }
+      setProviderOrder(DEFAULT_PROVIDER_ORDER);
+    } catch { setProviderOrder(DEFAULT_PROVIDER_ORDER); }
+  };
+
+  const saveProviderOrder = async (nextOrder) => {
+    setProviderOrderLoading(true);
+    try {
+      await sbFetch("app_settings", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "provider_priority", value: JSON.stringify(nextOrder) }),
+      });
+      setProviderOrder(nextOrder);
+      showMsg("✅ اولویت هوش مصنوعی‌ها ذخیره شد");
+    } catch (e) {
+      showMsg("⚠️ خطا در ذخیره‌ی اولویت: " + e.message);
+    }
+    setProviderOrderLoading(false);
+  };
+
+  const moveProvider = (idx, dir) => {
+    const next = [...providerOrder];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    saveProviderOrder(next);
+  };
 
   const loadForceLocalAI = async () => {
     try {
@@ -1162,6 +1219,28 @@ const handleFileUpload = async (e) => {
                   <span style={{ position: "absolute", top: 3, [forceLocalAI ? "right" : "left"]: 3, width: 22, height: 22, borderRadius: "50%", background: "white", transition: "all 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </button>
               </div>
+
+              <div style={{ background: "#f8f9fa", border: "2px solid #0078d422", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "#0078d4", marginBottom: 4 }}>
+                  🎚️ اولویت هوش مصنوعی‌ها
+                </div>
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 12 }}>
+                  اولین موردی که در دسترس باشه و جواب بده استفاده میشه؛ با فلش‌ها ترتیب رو عوض کنید.
+                  {forceLocalAI && " (توجه: چون «فقط هوش مصنوعی محلی» فعاله، این ترتیب فعلاً نادیده گرفته میشه.)"}
+                </div>
+                {providerOrder.map((p, idx) => (
+                  <div key={p} style={{ display: "flex", alignItems: "center", gap: 10, background: "white", border: "1px solid #e0e0e0", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <button onClick={() => moveProvider(idx, -1)} disabled={idx === 0 || providerOrderLoading}
+                        style={{ padding: "2px 8px", background: idx === 0 ? "#eee" : "#f0f0f0", border: "1px solid #ddd", borderRadius: 4, cursor: idx === 0 ? "default" : "pointer", fontSize: 11 }}>▲</button>
+                      <button onClick={() => moveProvider(idx, 1)} disabled={idx === providerOrder.length - 1 || providerOrderLoading}
+                        style={{ padding: "2px 8px", background: idx === providerOrder.length - 1 ? "#eee" : "#f0f0f0", border: "1px solid #ddd", borderRadius: 4, cursor: idx === providerOrder.length - 1 ? "default" : "pointer", fontSize: 11 }}>▼</button>
+                    </div>
+                    <div style={{ fontWeight: 600, color: "#333", flex: 1 }}>{idx + 1}. {PROVIDER_LABELS[p] || p}</div>
+                  </div>
+                ))}
+              </div>
+
               {statsLoading ? (
                 <div style={{textAlign:"center",padding:40,color:"#666"}}>در حال بارگذاری...</div>
               ) : stats ? (
@@ -1465,7 +1544,7 @@ export default function ITAssistant() {
   const [buttons, setButtons] = useState([]);
   const bottomRef = useRef(null);
 
-  useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); }, []);
+  useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); loadProviderOrder(); }, []);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     try { sessionStorage.setItem("it_assistant_messages", JSON.stringify(messages)); } catch {}
@@ -1528,6 +1607,26 @@ export default function ITAssistant() {
       const data = await sbFetch("app_settings?key=eq.force_lmstudio_only&select=value");
       setForceLocalAI(data?.[0]?.value === "true");
     } catch {}
+  };
+
+  // 🎚️ ۱۳ اوت ۲۰۲۶: همون کلید provider_priority که پنل مدیریت ذخیره می‌کنه، اینجا خونده و
+  // همراه هر درخواست /chat فرستاده میشه؛ اگه نبود/نامعتبر بود، بک‌اند خودش ترتیب پیش‌فرض رو استفاده می‌کنه.
+  const [providerOrder, setProviderOrder] = useState(DEFAULT_PROVIDER_ORDER);
+  const loadProviderOrder = async () => {
+    try {
+      const data = await sbFetch("app_settings?key=eq.provider_priority&select=value");
+      const raw = data?.[0]?.value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length === DEFAULT_PROVIDER_ORDER.length
+            && new Set(parsed).size === DEFAULT_PROVIDER_ORDER.length
+            && parsed.every(p => DEFAULT_PROVIDER_ORDER.includes(p))) {
+          setProviderOrder(parsed);
+          return;
+        }
+      }
+      setProviderOrder(DEFAULT_PROVIDER_ORDER);
+    } catch { setProviderOrder(DEFAULT_PROVIDER_ORDER); }
   };
 
   const sendButtonMessage = async (question) => {
@@ -1843,7 +1942,7 @@ export default function ITAssistant() {
       const res = await fetchWithFallback("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt, force_lmstudio: forceLocalAI }),
+        body: JSON.stringify({ messages: finalMessages, system_prompt: systemPrompt, force_lmstudio: forceLocalAI, provider_order: providerOrder }),
         // ⏱️ چهارم اوت ۲۰۲۶: با شناسه‌ی rid توی بک‌اند دیدیم بعضی جواب‌های موفق واقعی ۶۰ تا ۹۶
         // ثانیه طول کشیدن (نه به‌خاطر timeout هر provider، بلکه ازدحام CPU/شبکه‌ی رایگان HF وقتی
         // چند درخواست هم‌زمان میان). با timeoutMs قبلی (۴۵s) + retries:1 این اتفاق می‌افتاد:
@@ -1959,7 +2058,7 @@ export default function ITAssistant() {
         </div>
       )}
 
-      {showAdminPanel && <AdminPanel onClose={() => { setShowAdminPanel(false); loadButtons(); loadForceLocalAI(); }} onDataChanged={() => { loadButtons(); loadForceLocalAI(); }} />}
+      {showAdminPanel && <AdminPanel onClose={() => { setShowAdminPanel(false); loadButtons(); loadForceLocalAI(); loadProviderOrder(); }} onDataChanged={() => { loadButtons(); loadForceLocalAI(); loadProviderOrder(); }} />}
 
       {showAnnouncements && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setShowAnnouncements(false)}>
