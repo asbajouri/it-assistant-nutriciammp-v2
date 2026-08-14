@@ -383,14 +383,37 @@ const isPhoneQuery = (text) => /داخلی|شماره\s*تماس|شماره\s*ت
 
 const PHONE_QUERY_STOPWORDS = ["داخلی", "شماره", "تماس", "تلفن", "چنده", "چیه", "چیست", "هست", "است", "آقای", "خانم", "جناب", "سرکار", "لطفا", "لطفاً", "بگو", "بده"];
 
-const extractPhoneSearchTerm = (text) => {
-  let t = text;
-  for (const w of PHONE_QUERY_STOPWORDS) {
-    t = t.replace(new RegExp(w, "gi"), " ");
-  }
-  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
-  return t;
+// ۱۳ اوت ۲۰۲۶: حذف stopword با regex ساده (substring) یه باگ واقعی داشت: کلمه‌ی توقف «را» به‌عنوان
+// substring داخل کلمه‌های واقعی هم پیدا می‌شه — مثلاً «چنارانی» دقیقاً شامل «را» هست (چ-ن-ا-ر-ا-ن-ی،
+// حروف ۴و۵ یعنی «را»)! نتیجه این بود که «چنارانی» به «چنا نی» خراب می‌شد. حالا اول نیم‌فاصله‌های
+// نامرئی (که ممکنه ضمیر چسبیده مثل «داخلی‌ش» رو جدا کنن) به فاصله‌ی واقعی تبدیل می‌شن، بعد متن به
+// کلمه تقسیم می‌شه و فقط کلمه‌هایی که دقیقاً (نه substring) با یه stopword یکی‌ان حذف می‌شن.
+const stripStopwordsWholeWord = (text, stopwords) => {
+  const stopSet = new Set(stopwords.map((w) => w.toLowerCase()));
+  // بلندترین stopword ها اول، تا وقتی یه کلمه با چندتاشون هم‌زمان شروع می‌شه، طولانی‌ترین (دقیق‌ترین) رو بردارین
+  const sortedStopwords = [...stopwords].sort((a, b) => b.length - a.length);
+  const PRONOUN_SUFFIXES = new Set(["شون", "مون", "تون", "ش", "م", "ت", "ای", "ه"]);
+  return text
+    .replace(/[\u200c\u200d]/g, " ")
+    .replace(/[؟?!.,]/g, " ")
+    .split(/\s+/)
+    .filter((w) => {
+      if (!w) return false;
+      const wLower = w.toLowerCase();
+      if (stopSet.has(wLower)) return false;
+      // «ایمیلش»، «داخلیمون»: stopword + ضمیر ملکی چسبیده بدون هیچ فاصله یا نیم‌فاصله‌ای
+      const matchedStop = sortedStopwords.find((sw) => sw.length >= 3 && wLower.startsWith(sw.toLowerCase()));
+      if (matchedStop) {
+        const suffix = wLower.slice(matchedStop.length);
+        if (PRONOUN_SUFFIXES.has(suffix)) return false;
+      }
+      return true;
+    })
+    .join(" ")
+    .trim();
 };
+
+const extractPhoneSearchTerm = (text) => stripStopwordsWholeWord(text, PHONE_QUERY_STOPWORDS);
 
 const searchPhoneDirectory = (docs, term) => {
   if (!term || term.length < 2) return [];
@@ -427,17 +450,31 @@ const FA_TO_LATIN_MAP = {
   "ل": "l", "م": "m", "ن": "n", "و": "o", "ه": "h", "ی": "i", "ئ": "i", "ء": "",
 };
 const transliterateFaToLatin = (text) => text.split("").map((ch) => (ch in FA_TO_LATIN_MAP ? FA_TO_LATIN_MAP[ch] : ch)).join("");
-const consonantSkeleton = (word) => word.toLowerCase().replace(/[^a-z]/g, "").replace(/[aeiou]/g, "");
+// ۱۳ اوت ۲۰۲۶: فارسی حرف دوبل رو یه بار می‌نویسه («حسین» یه «س» داره، ولی لاتینش «Hossein»
+// دو تا «s» داره) — بدون یکی‌کردن حروف بی‌صدای پشت‌سرهم تکراری، اسکلت «حسین» (hsn) هیچ‌وقت با
+// اسکلت واقعی «Hossein» (hssn) برابر نمی‌شد و کل ردیف (با اینکه بخش دوم اسمش «چنارانی» درست
+// match می‌شد) به‌خاطر AND چندکلمه‌ای رد می‌شد. حالا حروف تکراری یکی می‌شن.
+const consonantSkeleton = (word) => {
+  const noVowels = word.toLowerCase().replace(/[^a-z]/g, "").replace(/[aeiou]/g, "");
+  return noVowels.replace(/(.)\1+/g, "$1");
+};
 
-// یه کلمه‌ی جستجو (فارسی یا لاتین) رو با یه کلمه از رکورد (توکن لاتین توی سند) مقایسه می‌کنه
+// یه کلمه‌ی جستجو (فارسی یا لاتین) رو با یه کلمه از رکورد (توکن لاتین توی سند) مقایسه می‌کنه.
+// ۱۳ اوت ۲۰۲۶: قبلاً حداقل طول فقط روی qLower چک می‌شد، نه dLower — یعنی توکن‌های خیلی کوتاه
+// (مثل «R»، «IT»، «CH» از سرنام‌های دپارتمان مثل «R&I»، «Finance – IT/IS») توی هر جستجویی که
+// اون حروف رو داشت trivially match می‌شدن، و اسم یه نفر (مثلاً «chenarani») با ده‌ها نفر دیگه
+// (که فقط یه دپارتمان مشترک داشتن) اشتباهی match می‌شد. حالا حداقل طول روی هر دو طرف چک می‌شه،
+// و به‌جای startsWith (که مثلاً اسکلت کوتاه «Chain»=«chn» رو با اسکلت «Chenarani»=«chnrn» قاطی
+// می‌کرد)، فقط تطابق دقیقِ اسکلت قبول می‌شه.
 const wordsLikelyMatch = (queryWord, dataWord) => {
   const qLower = queryWord.toLowerCase();
   const dLower = dataWord.toLowerCase();
-  if (qLower.length >= 2 && (dLower.includes(qLower) || qLower.includes(dLower))) return true;
+  if (qLower.length >= 3 && dLower.length >= 3 && dLower.includes(qLower)) return true;
+  if (qLower.length >= 3 && dLower.length >= 4 && qLower.includes(dLower)) return true;
   const qSkeleton = consonantSkeleton(transliterateFaToLatin(queryWord));
   const dSkeleton = consonantSkeleton(dataWord);
   if (qSkeleton.length < 2 || dSkeleton.length < 2) return false;
-  return qSkeleton === dSkeleton || dSkeleton.startsWith(qSkeleton) || qSkeleton.startsWith(dSkeleton);
+  return qSkeleton === dSkeleton;
 };
 
 const isEmployeeLookupQuery = (text) =>
@@ -445,14 +482,7 @@ const isEmployeeLookupQuery = (text) =>
   !/(فراموش|بازیابی|reset|forgot|عوض\s*کن|change).{0,15}(ایمیل|پسورد|پسوورد|رمز|password)/i.test(text);
 
 const EMPLOYEE_QUERY_STOPWORDS = ["ایمیل", "پست", "الکترونیک", "آدرس", "چیه", "چیست", "کیه", "کجاست", "هست", "است", "بده", "رو", "را", "لطفا", "لطفاً", "آقای", "خانم", "جناب", "سرکار", "بگو", "مشخصات"];
-const extractEmployeeSearchTerm = (text) => {
-  let t = text;
-  for (const w of EMPLOYEE_QUERY_STOPWORDS) {
-    t = t.replace(new RegExp(w, "gi"), " ");
-  }
-  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
-  return t;
-};
+const extractEmployeeSearchTerm = (text) => stripStopwordsWholeWord(text, EMPLOYEE_QUERY_STOPWORDS);
 
 // ۱۳ اوت ۲۰۲۶: وقتی سوال ادامه‌ی سوال قبلیه و اسم رو تکرار نمی‌کنه («ایمیلش چیه؟»، «داخلی‌ش
 // چنده؟»)، extractPhoneSearchTerm/extractEmployeeSearchTerm روی پیام فعلی هیچ اسمی گیرشون
@@ -462,14 +492,7 @@ const extractEmployeeSearchTerm = (text) => {
 // (hallucination). این تابع اگه استخراج از پیام فعلی خالی بود، برمی‌گرده توی چند پیام قبلی
 // مکالمه (حداکثر ۶ تا، کاربر یا دستیار) دنبال یه اسم می‌گرده — با همون تابع استخراج.
 const GENERIC_NAME_STOPWORDS = [...new Set([...PHONE_QUERY_STOPWORDS, ...EMPLOYEE_QUERY_STOPWORDS])];
-const extractGenericNameTerm = (text) => {
-  let t = text;
-  for (const w of GENERIC_NAME_STOPWORDS) {
-    t = t.replace(new RegExp(w, "gi"), " ");
-  }
-  t = t.replace(/[\u200c\u200d]/g, " ").replace(/[؟?!.,]/g, " ").replace(/\s+/g, " ").trim();
-  return t;
-};
+const extractGenericNameTerm = (text) => stripStopwordsWholeWord(text, GENERIC_NAME_STOPWORDS);
 
 const resolveFollowupSearchTerm = (currentTerm, recentMessages) => {
   if (currentTerm && currentTerm.trim().length >= 2) return currentTerm;
