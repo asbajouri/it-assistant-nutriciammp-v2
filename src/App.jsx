@@ -1666,7 +1666,7 @@ function renderLineWithLinks(line, keyPrefix) {
       return (
         <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate", display: "inline-block", maxWidth: "100%", verticalAlign: "bottom" }}>
           <a href={href} target="_blank" rel="noopener noreferrer"
-            style={{ display: "block", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", color: "#0078d4", fontWeight: 700, textDecoration: "underline", fontSize: 13 }}>
+            style={{ display: "block", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", color: "#0078d4", fontWeight: 700, textDecoration: "underline", fontSize: 11 }}>
             {href}
           </a>
           {trailing}
@@ -2294,7 +2294,7 @@ export default function ITAssistant() {
               {announcements.map(item => (
                 <div key={item.id} style={{ border: "1px solid #e0e0e0", borderRadius: 10, padding: 14, background: "#fafbfc", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 15, marginBottom: 6 }}>{item.title}</div>
-                  <div style={{ fontSize: 13, lineHeight: 1.8, color: "#333", overflowWrap: "anywhere" }}><AnnouncementContentBlock content={item.content} /></div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#333", overflowWrap: "anywhere" }}><AnnouncementContentBlock content={item.content} /></div>
                   <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>{formatPersianDate(item.created_at)}</div>
                 </div>
               ))}
