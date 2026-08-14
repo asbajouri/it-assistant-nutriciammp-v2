@@ -1720,6 +1720,7 @@ export default function ITAssistant() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [showQuickButtons, setShowQuickButtons] = useState(true);
   const [announcements, setAnnouncements] = useState([]);
   const [adminPass, setAdminPass] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -2230,14 +2231,27 @@ export default function ITAssistant() {
         <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
       </div>
 
-      <div style={{ padding: "10px 16px", background: "#fff", borderBottom: "1px solid #e0e0e0", display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {buttons.map((q) => (
-          <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" }}
-            onMouseEnter={e => { e.target.style.background = "#0078d4"; e.target.style.color = "white"; }}
-            onMouseLeave={e => { e.target.style.background = "white"; e.target.style.color = "#0078d4"; }}
-          >{q.label}</button>
-        ))}
-      </div>
+      {buttons.length > 0 && (
+        <div style={{ background: "#fff", borderBottom: showQuickButtons ? "1px solid #e0e0e0" : "none" }}>
+          <div
+            onClick={() => setShowQuickButtons(v => !v)}
+            title={showQuickButtons ? "پنهان کردن دکمه‌های سریع" : "نمایش دکمه‌های سریع"}
+            style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "3px 0", cursor: "pointer", color: "#8a8a8a", background: "#fafbfc", borderBottom: "1px solid #eee" }}
+          >
+            <span style={{ fontSize: 12, transition: "transform 0.2s", transform: showQuickButtons ? "rotate(0deg)" : "rotate(180deg)" }}>▲</span>
+          </div>
+          {showQuickButtons && (
+            <div style={{ padding: "10px 16px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {buttons.map((q) => (
+                <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" }}
+                  onMouseEnter={e => { e.target.style.background = "#0078d4"; e.target.style.color = "white"; }}
+                  onMouseLeave={e => { e.target.style.background = "white"; e.target.style.color = "#0078d4"; }}
+                >{q.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch", touchAction: "pan-y", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
         {messages.map((msg, i) => (
