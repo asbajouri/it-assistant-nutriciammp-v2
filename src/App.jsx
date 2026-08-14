@@ -1666,7 +1666,7 @@ function renderLineWithLinks(line, keyPrefix) {
       return (
         <span key={keyPrefix + "-" + idx} dir="ltr" style={{ unicodeBidi: "isolate", display: "inline-block", maxWidth: "100%", verticalAlign: "bottom" }}>
           <a href={href} target="_blank" rel="noopener noreferrer"
-            style={{ display: "block", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", color: "#0078d4", fontWeight: 700, textDecoration: "underline", fontSize: 11 }}>
+            style={{ display: "block", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", color: "#0078d4", fontWeight: 700, textDecoration: "underline", fontSize: 13 }}>
             {href}
           </a>
           {trailing}
