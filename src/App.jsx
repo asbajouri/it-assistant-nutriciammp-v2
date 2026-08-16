@@ -53,14 +53,35 @@ const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weat
 // تا دقیقاً از روی متن واقعی جواب بده — منبع دقیق (لیبل + URL) و ساعت دریافت هم همیشه (بدون
 // وابستگی به این‌که AI خودش یادش بمونه) زیر جواب اضافه می‌شه.
 const WEB_SOURCE_CACHE_MS = 10 * 60 * 1000; // ۱۰ دقیقه — طبق تصمیم کاربر: «بلادرنگ با کش کوتاه»
+// مچ کلمه‌به‌کلمه (نه substring خام) — بدون این، کلیدواژه‌ی دو-سه‌حرفیِ رایج مثل «ای» یا «را»
+// می‌تونست وسط کلمه‌های کاملاً نامرتبط (مثلاً «ای» داخل «برای») هم پیدا بشه و باعث match اشتباه بشه
+const wordBoundaryIncludes = (haystackNorm, needleNorm) => {
+  const esc = needleNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${esc}([^\\p{L}\\p{N}]|$)`, "u").test(` ${haystackNorm} `);
+  } catch {
+    return (` ${haystackNorm} `).includes(` ${needleNorm} `); // fallback برای مرورگرهای خیلی قدیمی بدون پشتیبانی \p{}
+  }
+};
+
 const matchWebSource = (userText, sources) => {
   if (!sources || sources.length === 0) return null;
   const userNorm = normalizeText(userText);
   let best = null, bestScore = 0;
   for (const src of sources) {
-    const kws = (src.keywords || "").split(/[،,]/).map(k => normalizeText(k.trim())).filter(k => k.length >= 2);
+    // کلیدواژه‌ها ممکنه ادمین با ویرگول جدا کرده باشه («دلار، یورو») یا فقط با فاصله («دلار یورو») —
+    // هر دو حالت رو پشتیبانی می‌کنیم: هم عبارت کامل بین دو ویرگول رو یه کلیدواژه حساب می‌کنیم، هم
+    // تک‌تک کلمات داخلش رو. بدون این، یه رشته‌ی طولانیِ بدون ویرگول («دلار ارز حواله طلا سکه...»)
+    // هیچ‌وقت داخل یه سوال کوتاه («دلار») پیدا نمی‌شد و match شکست می‌خورد.
+    const parts = (src.keywords || "").split(/[،,]+/).map(k => k.trim()).filter(Boolean);
+    const terms = new Set();
+    for (const part of parts) {
+      const norm = normalizeText(part);
+      if (norm.length >= 2) terms.add(norm);
+      for (const w of norm.split(/\s+/)) { if (w.length >= 2) terms.add(w); }
+    }
     let score = 0;
-    for (const kw of kws) { if (userNorm.includes(kw)) score++; }
+    for (const term of terms) { if (wordBoundaryIncludes(userNorm, term)) score++; }
     if (score > bestScore) { bestScore = score; best = src; }
   }
   return best;
