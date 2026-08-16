@@ -67,7 +67,7 @@ const wordBoundaryIncludes = (haystackNorm, needleNorm) => {
 const matchWebSource = (userText, sources) => {
   if (!sources || sources.length === 0) return null;
   const userNorm = normalizeText(userText);
-  let best = null, bestScore = 0;
+  const candidates = [];
   for (const src of sources) {
     // کلیدواژه‌ها ممکنه ادمین با ویرگول جدا کرده باشه («دلار، یورو») یا فقط با فاصله («دلار یورو») —
     // هر دو حالت رو پشتیبانی می‌کنیم: هم عبارت کامل بین دو ویرگول رو یه کلیدواژه حساب می‌کنیم، هم
@@ -82,9 +82,19 @@ const matchWebSource = (userText, sources) => {
     }
     let score = 0;
     for (const term of terms) { if (wordBoundaryIncludes(userNorm, term)) score++; }
-    if (score > bestScore) { bestScore = score; best = src; }
+    if (score > 0) candidates.push({ src, score });
   }
-  return best;
+  if (candidates.length === 0) return null;
+  // وقتی چندتا منبع هم‌زمان با یه سوال مچ می‌شن (مثلاً هم Navasan هم tgju.org روی «دلار»)، اولویت
+  // (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰) تعیین‌کننده‌ی اصلیه، نه صرفاً تعداد کلیدواژه‌های مچ‌شده — تا
+  // ادمین بتونه صریح بگه همیشه فلان منبع رو ترجیح بده. فقط وقتی اولویت دو منبع برابر بود، امتیاز
+  // (تعداد کلیدواژه‌ی مچ‌شده) تصمیم می‌گیره.
+  candidates.sort((a, b) => {
+    const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
+    if (pa !== pb) return pa - pb;
+    return b.score - a.score;
+  });
+  return candidates[0].src;
 };
 const isWebSourceStale = (src) => {
   if (!src.last_fetched_at) return true;
@@ -769,6 +779,7 @@ function AdminPanel({ onClose, onDataChanged }) {
   const [wsLabel, setWsLabel] = useState("");
   const [wsUrl, setWsUrl] = useState("");
   const [wsKeywords, setWsKeywords] = useState("");
+  const [wsPriority, setWsPriority] = useState("0");
   const [wsEditId, setWsEditId] = useState(null);
   const [wsRefreshingId, setWsRefreshingId] = useState(null);
 
@@ -1036,7 +1047,7 @@ function AdminPanel({ onClose, onDataChanged }) {
   // ── منابع وب — یه URL دلخواه که با کلیدواژه‌ی خودش، محتوای بلادرنگش به AI داده می‌شه ──
   const loadWebSources = async () => {
     try {
-      const data = await sbFetch("web_sources?order=id");
+      const data = await sbFetch("web_sources?order=priority.asc,id.asc");
       setWebSources(data);
     } catch { showMsg("⚠️ خطا در بارگذاری منابع وب (احتمالاً جدول web_sources هنوز توی Supabase ساخته نشده)"); }
   };
@@ -1044,21 +1055,22 @@ function AdminPanel({ onClose, onDataChanged }) {
   const saveWebSource = async () => {
     if (!wsLabel.trim() || !wsUrl.trim() || !wsKeywords.trim()) { showMsg("⚠️ لیبل، URL و کلیدواژه‌ها را پر کنید"); return; }
     if (!/^https?:\/\//i.test(wsUrl.trim())) { showMsg("⚠️ URL باید با http:// یا https:// شروع بشه"); return; }
+    const priorityNum = parseInt(wsPriority, 10);
     setLoading(true);
     try {
       if (wsEditId !== null) {
         await sbFetch(`web_sources?id=eq.${wsEditId}`, {
           method: "PATCH",
-          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords })
+          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords, priority: isNaN(priorityNum) ? 0 : priorityNum })
         });
         setWsEditId(null);
       } else {
         await sbFetch("web_sources", {
           method: "POST",
-          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords })
+          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords, priority: isNaN(priorityNum) ? 0 : priorityNum })
         });
       }
-      setWsLabel(""); setWsUrl(""); setWsKeywords("");
+      setWsLabel(""); setWsUrl(""); setWsKeywords(""); setWsPriority("0");
       await loadWebSources();
       showMsg("✅ منبع وب ذخیره شد");
     } catch (e) { showMsg("⚠️ خطا در ذخیره: " + e.message); }
@@ -1711,20 +1723,21 @@ const handleFileUpload = async (e) => {
                 <input value={wsLabel} onChange={e => setWsLabel(e.target.value)} placeholder="لیبل (مثلاً: نرخ ارز نوسان‌پلاس)" style={inputStyle} />
                 <input value={wsUrl} onChange={e => setWsUrl(e.target.value)} placeholder="آدرس صفحه (مثلاً: https://www.navasanplus.net/)" style={{ ...inputStyle, direction: "ltr", textAlign: "left" }} />
                 <input value={wsKeywords} onChange={e => setWsKeywords(e.target.value)} placeholder="کلیدواژه‌ها با ویرگول جدا کنید (مثلاً: دلار، نرخ ارز، یورو، حواله)" style={inputStyle} />
+                <input type="number" value={wsPriority} onChange={e => setWsPriority(e.target.value)} placeholder="اولویت (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰)" style={inputStyle} />
                 <div style={{ fontSize: 12, color: "#999", marginBottom: 10, textAlign: "right" }}>
-                  وقتی سوال کاربر یکی از این کلیدواژه‌ها رو داشته باشه، محتوای همین صفحه (بلادرنگ یا با کش تا ۱۰ دقیقه) به هوش مصنوعی داده می‌شه تا دقیقاً از روی همون متن جواب بده — با ذکر منبع و ساعت دریافت زیر جواب.
+                  وقتی سوال کاربر یکی از این کلیدواژه‌ها رو داشته باشه، محتوای همین صفحه (بلادرنگ یا با کش تا ۱۰ دقیقه) به هوش مصنوعی داده می‌شه تا دقیقاً از روی همون متن جواب بده — با ذکر منبع و ساعت دریافت زیر جواب. اگه یه سوال با چندتا منبع هم‌زمان مچ بشه، منبعی که عدد اولویتش کوچیک‌تره برنده می‌شه.
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveWebSource} disabled={loading} style={{ padding: "9px 20px", background: "#0078d4", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>
                     {loading ? "..." : wsEditId !== null ? "ذخیره ویرایش" : "افزودن"}
                   </button>
-                  {wsEditId !== null && <button onClick={() => { setWsEditId(null); setWsLabel(""); setWsUrl(""); setWsKeywords(""); }} style={{ padding: "9px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>انصراف</button>}
+                  {wsEditId !== null && <button onClick={() => { setWsEditId(null); setWsLabel(""); setWsUrl(""); setWsKeywords(""); setWsPriority("0"); }} style={{ padding: "9px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>انصراف</button>}
                 </div>
               </div>
               <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>منابع وب ثبت‌شده ({webSources.length})</h3>
               {webSources.length === 0 ? <p style={{ color: "#999", textAlign: "center", padding: 30 }}>هنوز منبع وبی اضافه نشده</p> : webSources.map((src) => (
                 <div key={src.id} style={{ border: "1px solid #e0e0e0", borderRadius: 8, padding: "12px 14px", marginBottom: 10, background: "#fff" }}>
-                  <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 14, marginBottom: 4 }}>🌐 {src.label}</div>
+                  <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 14, marginBottom: 4 }}>🌐 {src.label} <span style={{ fontWeight: 400, fontSize: 11, color: "#999" }}>(اولویت: {src.priority ?? 0})</span></div>
                   <div style={{ color: "#0078d4", fontSize: 12, direction: "ltr", textAlign: "left", marginBottom: 6, wordBreak: "break-all" }}>{src.url}</div>
                   <div style={{ color: "#666", fontSize: 12, marginBottom: 6 }}>🔑 کلیدواژه‌ها: {src.keywords}</div>
                   <div style={{ color: "#aaa", fontSize: 11, marginBottom: 10 }}>
@@ -1734,7 +1747,7 @@ const handleFileUpload = async (e) => {
                     <button onClick={() => refreshWebSource(src)} disabled={wsRefreshingId === src.id} style={{ padding: "6px 14px", background: "#28a745", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, opacity: wsRefreshingId === src.id ? 0.6 : 1 }}>
                       {wsRefreshingId === src.id ? "⏳ در حال خواندن..." : "🔄 بروزرسانی دستی"}
                     </button>
-                    <button onClick={() => { setWsLabel(src.label); setWsUrl(src.url); setWsKeywords(src.keywords); setWsEditId(src.id); document.querySelector("[data-admin-scroll]")?.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ padding: "6px 14px", background: "#ffc107", color: "#333", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>✏️ ویرایش</button>
+                    <button onClick={() => { setWsLabel(src.label); setWsUrl(src.url); setWsKeywords(src.keywords); setWsPriority(String(src.priority ?? 0)); setWsEditId(src.id); document.querySelector("[data-admin-scroll]")?.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ padding: "6px 14px", background: "#ffc107", color: "#333", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>✏️ ویرایش</button>
                     <button onClick={() => deleteWebSource(src.id)} style={{ padding: "6px 14px", background: "#dc3545", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>🗑️ حذف</button>
                   </div>
                 </div>
@@ -2309,7 +2322,7 @@ export default function ITAssistant() {
     // عادی AI (پایین) سقوط نمی‌کنه، چون اگه سایت در دسترس نباشه، اجازه‌ی جواب‌دادن AI از حافظه‌ی
     // خودش (که برای قیمت لحظه‌ای ارز/دلار می‌تونه کاملاً ساختگی باشه) خطرناک‌تر از نشون‌دادن خطاست.
     try {
-      const webSources = await sbFetch("web_sources?order=id").catch(() => []);
+      const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
       const matchedSource = matchWebSource(userText, webSources);
       if (matchedSource) {
         let content = matchedSource.last_content;
@@ -2330,9 +2343,10 @@ export default function ITAssistant() {
           "تو داری بر اساس محتوای واقعیِ همین الانِ یک صفحه‌ی وب به سوال کاربر جواب می‌دی. فقط و فقط از متن زیر استفاده کن؛ " +
           "هیچ عدد یا اطلاعاتی از حافظه‌ی خودت یا حدس اضافه نکن. اگه جواب دقیق سوال کاربر توی این متن نبود، صادقانه بگو توی " +
           "این صفحه پیدا نشد. جواب رو کوتاه و مستقیم (فقط همون عدد/مقداری که کاربر خواسته) بده، بدون توضیح اضافه مگر لازم باشه. " +
-          "خیلی مهم: هر عددی که می‌گی حتماً با واحدش بیار (مثلاً «تومان»، «دلار»، «ریال»، «درصد») — دقیقاً همون واحدی که توی متن " +
-          "منبع مشخصه یا از بافت متن (مثل جدول‌های قیمت ایرانی که معمولاً تومان‌اند) برمیاد؛ اگه واحد توی متن منبع مشخص نبود، " +
-          "صادقانه بگو واحدش توی این صفحه ذکر نشده — یه واحد از خودت حدس نزن.\n\n" +
+          "خیلی مهم درباره‌ی واحد عدد (تومان/ریال/دلار/درصد/...): فقط و فقط دقیقاً همون واحدی که توی خودِ متن منبع (مثلاً کنار " +
+          "عنوان ستون یا جلوی همون عدد) صریحاً نوشته شده رو بگو — هیچ‌وقت بر اساس این‌که «سایت‌های ایرانی معمولاً فلان واحدن» یا " +
+          "هر قاعده‌ی کلی دیگه حدس نزن، چون خیلی از سایت‌ها ریال می‌نویسن نه تومان (این دو ده برابر همدیگه‌ن و اشتباهش خیلی مهمه). " +
+          "اگه واحد توی متن منبع صریحاً ذکر نشده بود، صادقانه بگو واحدش توی این صفحه مشخص نشده.\n\n" +
           `=== محتوای صفحه (${matchedSource.label} — ${matchedSource.url}) ===\n${content}`;
         const wsApiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
         try {
