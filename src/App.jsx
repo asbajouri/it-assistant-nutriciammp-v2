@@ -46,6 +46,35 @@ const normalizeText = (t) => t
 
 const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weather|temperature/i.test(text);
 
+// === منابع وب (پنل مدیریت → تب «منابع وب») — ۱۶ اوت ۲۰۲۶ ===
+// ادمین یه URL دلخواه (مثلاً سایت نرخ ارز) به‌همراه یه لیبل و چندتا کلیدواژه‌ی جداشده با
+// ویرگول ثبت می‌کنه. اگه سوال کاربر با کلیدواژه‌های یکی از منابع مچ شد، محتوای بلادرنگ (یا
+// کش چند دقیقه‌ای، برای این‌که فشار زیادی به سایت مقصد وارد نشه) همون صفحه به AI داده می‌شه
+// تا دقیقاً از روی متن واقعی جواب بده — منبع دقیق (لیبل + URL) و ساعت دریافت هم همیشه (بدون
+// وابستگی به این‌که AI خودش یادش بمونه) زیر جواب اضافه می‌شه.
+const WEB_SOURCE_CACHE_MS = 10 * 60 * 1000; // ۱۰ دقیقه — طبق تصمیم کاربر: «بلادرنگ با کش کوتاه»
+const matchWebSource = (userText, sources) => {
+  if (!sources || sources.length === 0) return null;
+  const userNorm = normalizeText(userText);
+  let best = null, bestScore = 0;
+  for (const src of sources) {
+    const kws = (src.keywords || "").split(/[،,]/).map(k => normalizeText(k.trim())).filter(k => k.length >= 2);
+    let score = 0;
+    for (const kw of kws) { if (userNorm.includes(kw)) score++; }
+    if (score > bestScore) { bestScore = score; best = src; }
+  }
+  return best;
+};
+const isWebSourceStale = (src) => {
+  if (!src.last_fetched_at) return true;
+  return Date.now() - new Date(src.last_fetched_at).getTime() > WEB_SOURCE_CACHE_MS;
+};
+const formatFetchTime = (iso) => {
+  if (!iso) return "نامشخص";
+  try { return new Date(iso).toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" }); }
+  catch { return "نامشخص"; }
+};
+
 // === اکتیوسازی ویندوز/آفیس — تشخیص سوال و پاسخ قطعی با KMS مشروع شرکت (بدون AI، بدون دانلود فایل) ===
 const isActivationQuery = (text) =>
   /(ویندوز|آفیس|windows|office)[\s\S]{0,15}(اکتیو|فعال)|(اکتیو|فعال)[\s\S]{0,15}(ویندوز|آفیس|windows|office)|\bactivation\b/i.test(text);
@@ -714,6 +743,13 @@ function AdminPanel({ onClose, onDataChanged }) {
   const [providerOrderLoading, setProviderOrderLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  // ── منابع وب (۱۶ اوت ۲۰۲۶) ──
+  const [webSources, setWebSources] = useState([]);
+  const [wsLabel, setWsLabel] = useState("");
+  const [wsUrl, setWsUrl] = useState("");
+  const [wsKeywords, setWsKeywords] = useState("");
+  const [wsEditId, setWsEditId] = useState(null);
+  const [wsRefreshingId, setWsRefreshingId] = useState(null);
 
   const showMsg = (m) => { setMsg(m); setTimeout(() => setMsg(""), 2500); };
 
@@ -723,6 +759,7 @@ function AdminPanel({ onClose, onDataChanged }) {
     loadAnn();
     loadForceLocalAI();
     loadProviderOrder();
+    loadWebSources();
   }, []);
 
   // 🎚️ ۱۳ اوت ۲۰۲۶: اولویت provider ها — دقیقاً همون الگوی force_lmstudio_only (کلید/مقدار توی
@@ -973,6 +1010,69 @@ function AdminPanel({ onClose, onDataChanged }) {
       console.error("Delete error:", err);
       showMsg("⚠️ خطا در حذف: " + err.message);
     }
+  };
+
+  // ── منابع وب — یه URL دلخواه که با کلیدواژه‌ی خودش، محتوای بلادرنگش به AI داده می‌شه ──
+  const loadWebSources = async () => {
+    try {
+      const data = await sbFetch("web_sources?order=id");
+      setWebSources(data);
+    } catch { showMsg("⚠️ خطا در بارگذاری منابع وب (احتمالاً جدول web_sources هنوز توی Supabase ساخته نشده)"); }
+  };
+
+  const saveWebSource = async () => {
+    if (!wsLabel.trim() || !wsUrl.trim() || !wsKeywords.trim()) { showMsg("⚠️ لیبل، URL و کلیدواژه‌ها را پر کنید"); return; }
+    if (!/^https?:\/\//i.test(wsUrl.trim())) { showMsg("⚠️ URL باید با http:// یا https:// شروع بشه"); return; }
+    setLoading(true);
+    try {
+      if (wsEditId !== null) {
+        await sbFetch(`web_sources?id=eq.${wsEditId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords })
+        });
+        setWsEditId(null);
+      } else {
+        await sbFetch("web_sources", {
+          method: "POST",
+          body: JSON.stringify({ label: wsLabel, url: wsUrl, keywords: wsKeywords })
+        });
+      }
+      setWsLabel(""); setWsUrl(""); setWsKeywords("");
+      await loadWebSources();
+      showMsg("✅ منبع وب ذخیره شد");
+    } catch (e) { showMsg("⚠️ خطا در ذخیره: " + e.message); }
+    setLoading(false);
+  };
+
+  const deleteWebSource = async (id) => {
+    if (!window.confirm("این منبع وب حذف شود؟")) return;
+    try {
+      await sbFetch(`web_sources?id=eq.${id}`, { method: "DELETE" });
+      await loadWebSources();
+      showMsg("✅ حذف شد");
+    } catch { showMsg("⚠️ خطا در حذف"); }
+  };
+
+  // تست/بروزرسانی دستی — همون فچی که موقع سوال کاربر بلادرنگ انجام می‌شه، اینجا هم برای اطمینان
+  // ادمین از این‌که سایت درست خونده می‌شه (قبل از این‌که کاربر واقعی سوال بپرسه) قابل‌اجراست.
+  const refreshWebSource = async (src) => {
+    setWsRefreshingId(src.id);
+    try {
+      const res = await fetchWithFallback("/fetch-web-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: src.url }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { showMsg("⚠️ خطا در خوندن سایت: " + (data.error || "نامشخص")); setWsRefreshingId(null); return; }
+      await sbFetch(`web_sources?id=eq.${src.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ last_content: data.content, last_fetched_at: new Date().toISOString() })
+      });
+      await loadWebSources();
+      showMsg("✅ محتوای سایت بروزرسانی شد");
+    } catch (e) { showMsg("⚠️ خطا در بروزرسانی: " + e.message); }
+    setWsRefreshingId(null);
   };
 
   // تشخیص و مسطح‌سازی جدول‌های چندبلاکی مثل لیست تلفن داخلی (اسم/داخلی که چند بار پهلوی هم تکرار شده)
@@ -1313,6 +1413,7 @@ const handleFileUpload = async (e) => {
           <button style={tabStyle("buttons")} onClick={() => setTab("buttons")}>🔘 دکمه‌های سریع</button>
           <button style={tabStyle("qa")} onClick={() => setTab("qa")}>💬 سوال و جواب اختصاصی</button>
           <button style={tabStyle("docs")} onClick={() => setTab("docs")}>📚 اسناد آموزشی</button>
+          <button style={tabStyle("websources")} onClick={() => setTab("websources")}>🌐 منابع وب</button>
           <button style={tabStyle("announcements")} onClick={() => setTab("announcements")}>📢 اطلاعیه‌ها</button>
           <button style={tabStyle("stats")} onClick={() => { setTab("stats"); loadStats(); }}>📊 آمار</button>
         </div>
@@ -1577,6 +1678,44 @@ const handleFileUpload = async (e) => {
                   </div>
                   <div style={{color:"#666",fontSize:12,textAlign:"right",marginBottom:4}}>{(doc.content || "").slice(0,150)}...</div>
                   <div style={{color:"#aaa",fontSize:11,textAlign:"right"}}>{(doc.content || "").length.toLocaleString()} کاراکتر · {new Date(doc.created_at).toLocaleDateString("fa-IR")}</div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {tab === "websources" && (
+            <>
+              <div style={{ background: "#f8f9fa", borderRadius: 8, padding: 16, marginBottom: 20 }}>
+                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>{wsEditId !== null ? "✏️ ویرایش منبع وب" : "➕ افزودن منبع وب جدید"}</h3>
+                <input value={wsLabel} onChange={e => setWsLabel(e.target.value)} placeholder="لیبل (مثلاً: نرخ ارز نوسان‌پلاس)" style={inputStyle} />
+                <input value={wsUrl} onChange={e => setWsUrl(e.target.value)} placeholder="آدرس صفحه (مثلاً: https://www.navasanplus.net/)" style={{ ...inputStyle, direction: "ltr", textAlign: "left" }} />
+                <input value={wsKeywords} onChange={e => setWsKeywords(e.target.value)} placeholder="کلیدواژه‌ها با ویرگول جدا کنید (مثلاً: دلار، نرخ ارز، یورو، حواله)" style={inputStyle} />
+                <div style={{ fontSize: 12, color: "#999", marginBottom: 10, textAlign: "right" }}>
+                  وقتی سوال کاربر یکی از این کلیدواژه‌ها رو داشته باشه، محتوای همین صفحه (بلادرنگ یا با کش تا ۱۰ دقیقه) به هوش مصنوعی داده می‌شه تا دقیقاً از روی همون متن جواب بده — با ذکر منبع و ساعت دریافت زیر جواب.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveWebSource} disabled={loading} style={{ padding: "9px 20px", background: "#0078d4", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>
+                    {loading ? "..." : wsEditId !== null ? "ذخیره ویرایش" : "افزودن"}
+                  </button>
+                  {wsEditId !== null && <button onClick={() => { setWsEditId(null); setWsLabel(""); setWsUrl(""); setWsKeywords(""); }} style={{ padding: "9px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>انصراف</button>}
+                </div>
+              </div>
+              <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>منابع وب ثبت‌شده ({webSources.length})</h3>
+              {webSources.length === 0 ? <p style={{ color: "#999", textAlign: "center", padding: 30 }}>هنوز منبع وبی اضافه نشده</p> : webSources.map((src) => (
+                <div key={src.id} style={{ border: "1px solid #e0e0e0", borderRadius: 8, padding: "12px 14px", marginBottom: 10, background: "#fff" }}>
+                  <div style={{ fontWeight: 700, color: "#0078d4", fontSize: 14, marginBottom: 4 }}>🌐 {src.label}</div>
+                  <div style={{ color: "#0078d4", fontSize: 12, direction: "ltr", textAlign: "left", marginBottom: 6, wordBreak: "break-all" }}>{src.url}</div>
+                  <div style={{ color: "#666", fontSize: 12, marginBottom: 6 }}>🔑 کلیدواژه‌ها: {src.keywords}</div>
+                  <div style={{ color: "#aaa", fontSize: 11, marginBottom: 10 }}>
+                    {src.last_fetched_at ? `آخرین دریافت: ${new Date(src.last_fetched_at).toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" })}` : "هنوز دریافت نشده"}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button onClick={() => refreshWebSource(src)} disabled={wsRefreshingId === src.id} style={{ padding: "6px 14px", background: "#28a745", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, opacity: wsRefreshingId === src.id ? 0.6 : 1 }}>
+                      {wsRefreshingId === src.id ? "⏳ در حال خواندن..." : "🔄 بروزرسانی دستی"}
+                    </button>
+                    <button onClick={() => { setWsLabel(src.label); setWsUrl(src.url); setWsKeywords(src.keywords); setWsEditId(src.id); document.querySelector("[data-admin-scroll]")?.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ padding: "6px 14px", background: "#ffc107", color: "#333", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>✏️ ویرایش</button>
+                    <button onClick={() => deleteWebSource(src.id)} style={{ padding: "6px 14px", background: "#dc3545", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>🗑️ حذف</button>
+                  </div>
                 </div>
               ))}
             </>
@@ -2004,6 +2143,31 @@ export default function ITAssistant() {
     return persianArabicChars <= 3;
   };
 
+  // منابع وب: صفحه رو از طریق بک‌اند (فقط بک‌اند به سایت‌های خارجی بدون محدودیت CORS دسترسی داره)
+  // بلادرنگ می‌خونه و نسخه‌ی تازه رو توی همون ردیف Supabase کش می‌کنه تا سوال‌های بعدی (تا سقف
+  // WEB_SOURCE_CACHE_MS) این فچ رو دوباره انجام ندن.
+  const fetchAndCacheWebSource = async (src) => {
+    try {
+      const res = await fetchWithFallback("/fetch-web-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: src.url }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) return null;
+      const fetchedAtIso = new Date().toISOString();
+      try {
+        await sbFetch(`web_sources?id=eq.${src.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ last_content: data.content, last_fetched_at: fetchedAtIso }),
+        });
+      } catch { /* اگه ذخیره‌ی کش توی Supabase خطا داد، بازم می‌تونیم از همون محتوای تازه‌خونده‌شده برای همین یه سوال استفاده کنیم */ }
+      return { content: data.content, fetched_at: fetchedAtIso };
+    } catch {
+      return null;
+    }
+  };
+
   const sendMessage = async (text) => {
     const userText = (text || input).trim();
     if (!userText || loading) return;
@@ -2117,6 +2281,64 @@ export default function ITAssistant() {
           // اگه weather API در دسترس نبود، بذار جریان عادی AI ادامه پیدا کنه
         }
       }
+    }
+
+    // اگه سوال با کلیدواژه‌ی یکی از «منابع وب» (پنل مدیریت) مچ شد، محتوای واقعی همون سایت رو
+    // (بلادرنگ یا از کش چند دقیقه‌ای) به AI بده تا دقیقاً از روی همون متن جواب بده. عمداً به جریان
+    // عادی AI (پایین) سقوط نمی‌کنه، چون اگه سایت در دسترس نباشه، اجازه‌ی جواب‌دادن AI از حافظه‌ی
+    // خودش (که برای قیمت لحظه‌ای ارز/دلار می‌تونه کاملاً ساختگی باشه) خطرناک‌تر از نشون‌دادن خطاست.
+    try {
+      const webSources = await sbFetch("web_sources?order=id").catch(() => []);
+      const matchedSource = matchWebSource(userText, webSources);
+      if (matchedSource) {
+        let content = matchedSource.last_content;
+        let fetchedAt = matchedSource.last_fetched_at;
+        if (isWebSourceStale(matchedSource)) {
+          const fresh = await fetchAndCacheWebSource(matchedSource);
+          if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
+        }
+        if (!content) {
+          const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("web_source_fetch_failed", "deterministic");
+          setLoading(false);
+          return;
+        }
+        const wsSystemPrompt =
+          "تو داری بر اساس محتوای واقعیِ همین الانِ یک صفحه‌ی وب به سوال کاربر جواب می‌دی. فقط و فقط از متن زیر استفاده کن؛ " +
+          "هیچ عدد یا اطلاعاتی از حافظه‌ی خودت یا حدس اضافه نکن. اگه جواب دقیق سوال کاربر توی این متن نبود، صادقانه بگو توی " +
+          "این صفحه پیدا نشد. جواب رو کوتاه و مستقیم (فقط همون عدد/مقداری که کاربر خواسته) بده، بدون توضیح اضافه مگر لازم باشه.\n\n" +
+          `=== محتوای صفحه (${matchedSource.label} — ${matchedSource.url}) ===\n${content}`;
+        const wsApiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
+        try {
+          const res = await fetchWithFallback("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: wsApiMsgs, system_prompt: wsSystemPrompt, force_lmstudio: forceLocalAI, provider_order: providerOrder }),
+            timeoutMs: 70000,
+          });
+          const data = await res.json();
+          if (res.ok && data.reply) {
+            const reply = `${cleanText(data.reply)}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("web_source:" + matchedSource.label, "ai");
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // پایین یه پیام خطای صریح نشون داده می‌شه
+        }
+        const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
+        setMessages([...newMessages, { role: "assistant", content: reply }]);
+        if (userId) saveMessage(userId, "assistant", reply);
+        logChat("web_source_ai_failed", "deterministic");
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      // اگه خوندن web_sources خطا داد (مثلاً جدولش هنوز توی Supabase ساخته نشده)، بذار جریان عادی AI ادامه پیدا کنه
     }
 
     try {
