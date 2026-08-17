@@ -98,6 +98,11 @@ const matchWebSource = (userText, sources) => {
   return candidates[0].src;
 };
 const isWebSourceStale = (src) => {
+  // منابع Navasan همیشه بلادرنگ فچ می‌شن، نه از کش: چون بعضی درخواست‌ها فقط یه آیتم خاص (مثلاً
+  // فقط دلار) رو از API می‌گیرن نه کل لیست، کشِ عمومیِ این منبع نمی‌تونه تضمین کنه دقیقاً همون
+  // آیتمی که سوال فعلی می‌خواد توش هست — پس برای این دامنه کش رو کلاً دور می‌زنیم. درخواست تک‌آیتمی
+  // خیلی سبکه، مشکلی برای سهمیه‌ی API ایجاد نمی‌کنه.
+  if ((src.url || "").includes("navasan.tech")) return true;
   if (!src.last_fetched_at) return true;
   return Date.now() - new Date(src.last_fetched_at).getTime() > WEB_SOURCE_CACHE_MS;
 };
@@ -2180,13 +2185,14 @@ export default function ITAssistant() {
 
   // منابع وب: صفحه رو از طریق بک‌اند (فقط بک‌اند به سایت‌های خارجی بدون محدودیت CORS دسترسی داره)
   // بلادرنگ می‌خونه و نسخه‌ی تازه رو توی همون ردیف Supabase کش می‌کنه تا سوال‌های بعدی (تا سقف
-  // WEB_SOURCE_CACHE_MS) این فچ رو دوباره انجام ندن.
-  const fetchAndCacheWebSource = async (src) => {
+  // WEB_SOURCE_CACHE_MS) این فچ رو دوباره انجام ندن. query (متن سوال کاربر) هم پاس داده می‌شه تا
+  // برای منابعی مثل Navasan، بک‌اند بتونه فقط همون آیتم خاص (مثلاً فقط دلار) رو بگیره، نه کل لیست.
+  const fetchAndCacheWebSource = async (src, query) => {
     try {
       const res = await fetchWithFallback("/fetch-web-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: src.url }),
+        body: JSON.stringify({ url: src.url, query: query || "" }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) return null;
@@ -2329,7 +2335,7 @@ export default function ITAssistant() {
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
         if (isWebSourceStale(matchedSource)) {
-          const fresh = await fetchAndCacheWebSource(matchedSource);
+          const fresh = await fetchAndCacheWebSource(matchedSource, userText);
           if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
         }
         if (!content) {
