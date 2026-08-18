@@ -1918,6 +1918,7 @@ export default function ITAssistant() {
   const [buttons, setButtons] = useState([]);
   const bottomRef = useRef(null);
   const abortControllerRef = useRef(null); // ۱۸ اوت ۲۰۲۶: برای دکمه‌ی «توقف» موقع لود جواب AI
+  const stoppedByUserRef = useRef(false); // تا پیام «متوقف شد» دوبار (هم از دکمه، هم از catch) اضافه نشه
 
   useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); loadProviderOrder(); }, []);
   useEffect(() => {
@@ -2223,6 +2224,18 @@ export default function ITAssistant() {
     }
   };
 
+  // ۱۸ اوت ۲۰۲۶: کلیک روی دکمه‌ی توقف باید فوری حس بشه — به‌جای این‌که منتظر بمونیم fetch واقعاً
+  // abort بشه (روی بعضی محیط‌ها مثل Teams webview این می‌تونه کند/متغیر باشه)، UI رو همینجا
+  // (synchronous، بدون async) فوراً آپدیت می‌کنیم؛ خودِ abort() هم صدا زده می‌شه تا درخواست شبکه
+  // هرچه زودتر پس‌زمینه قطع بشه، ولی کاربر منتظرش نمی‌مونه.
+  const stopGeneration = () => {
+    if (!abortControllerRef.current || stoppedByUserRef.current) return;
+    stoppedByUserRef.current = true;
+    setLoading(false);
+    setMessages(prev => [...prev, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
+    abortControllerRef.current.abort();
+  };
+
   const sendMessage = async (text) => {
     const userText = (text || input).trim();
     if (!userText || loading) return;
@@ -2231,6 +2244,7 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+    stoppedByUserRef.current = false;
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
@@ -2355,12 +2369,9 @@ export default function ITAssistant() {
           if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
         }
         if (!content) {
-          // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام گمراه‌کننده نشون نده
-          if (abortController.signal.aborted) {
-            setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
-            setLoading(false);
-            return;
-          }
+          // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام «متوقف شد» رو دکمه‌ی
+          // توقف خودش همون لحظه‌ی کلیک اضافه کرده — اینجا فقط ساکت برمی‌گردیم، دوباره اضافه نمی‌کنیم
+          if (stoppedByUserRef.current) { setLoading(false); return; }
           const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
@@ -2396,12 +2407,8 @@ export default function ITAssistant() {
             return;
           }
         } catch (e) {
-          // اگه کاربر خودش لغو کرده، پیام «نتونستم جواب بدم» گمراه‌کننده‌ست — پیام خنثی نشون بده
-          if (e.name === "AbortError") {
-            setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
-            setLoading(false);
-            return;
-          }
+          // اگه کاربر خودش لغو کرده، دکمه‌ی توقف خودش همون لحظه پیام رو اضافه کرده — دوباره اضافه نکن
+          if (e.name === "AbortError") { setLoading(false); return; }
           // وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
         }
         const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
@@ -2485,12 +2492,10 @@ export default function ITAssistant() {
       if (userId) saveMessage(userId, "assistant", replyWithSource);
       logChat(outOfScope ? "out_of_scope" : (data.source || "ai"), "ai");
     } catch (err) {
-      // ۱۸ اوت ۲۰۲۶: اگه کاربر خودش با دکمه‌ی «توقف» درخواست رو لغو کرده، این یه خطای واقعی نیست —
-      // به‌جای پیام «خطا در اتصال»، یه پیام خنثی نشون بده (یا اصلاً چیزی نشون نده، چون کاربر خودش
-      // می‌دونه چیکار کرد)
-      if (err.name === "AbortError") {
-        setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
-      } else {
+      // ۱۸ اوت ۲۰۲۶: اگه کاربر خودش با دکمه‌ی «توقف» درخواست رو لغو کرده، دکمه همون لحظه‌ی کلیک
+      // (نه اینجا، که ممکنه دیر برسه) پیام رو اضافه کرده — دوباره اضافه نکن. برای خطاهای واقعی
+      // (نه لغو کاربر)، همون پیام قبلی «خطا در اتصال» نشون داده می‌شه.
+      if (err.name !== "AbortError") {
         setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
       }
     } finally { setLoading(false); }
@@ -2568,9 +2573,9 @@ export default function ITAssistant() {
         {loading && (
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
             <button
-              onClick={() => abortControllerRef.current?.abort()}
+              onClick={stopGeneration}
               title="توقف پاسخ"
-              style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #dc3545", background: "white", color: "#dc3545", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, flexShrink: 0 }}
+              style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: "#999", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 15, flexShrink: 0 }}
             >⏹️</button>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🖥️</div>
             <div style={{ padding: "12px 16px", borderRadius: "18px 18px 4px 18px", background: "white", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", display: "flex", gap: 4, alignItems: "center" }}>
