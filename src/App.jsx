@@ -13,16 +13,28 @@ async function fetchWithFallback(path, options) {
   // admin/login, extract-image, ...) دقیقاً همون قبلیه، هیچ‌کدوم عوض نشدن.
   // فقط /chat به‌صورت صریح retries:1 پاس می‌ده (پایین‌تر) چون تنها جایی‌ست که به‌خاطر زنجیره‌ی
   // ۴ تا provider رایگان، گاهی یه burst کوتاه باعث ۵۰۳ میشه که چند ثانیه بعد خودش برطرف میشه.
-  const { timeoutMs, retries = 0, retryDelayMs = 2500, ...fetchOptions } = options || {};
+  // ۱۸ اوت ۲۰۲۶: پارامتر signal (اختیاری) اضافه شد تا فراخوان بتونه یه AbortSignal بیرونی بده (مثلاً
+  // برای دکمه‌ی «توقف» موقع لود جواب AI) — این signal با همون AbortController داخلیِ هر تلاش (که
+  // برای timeout استفاده می‌شه) ترکیب می‌شه، بدون این‌که رفتار timeout هیچ‌کدوم از call siteهای دیگه عوض بشه.
+  const { timeoutMs, retries = 0, retryDelayMs = 2500, signal: externalSignal, ...fetchOptions } = options || {};
   for (let attempt = 0; attempt <= retries; attempt++) {
+    if (externalSignal && externalSignal.aborted) throw new DOMException("لغو شد توسط کاربر", "AbortError");
     for (const base of API_URLS) {
       try {
         const controller = new AbortController();
         const t = setTimeout(() => controller.abort(), timeoutMs || 12000);
-        const res = await fetch(`${base}${path}`, { ...fetchOptions, signal: controller.signal });
-        clearTimeout(t);
+        const onExternalAbort = () => controller.abort();
+        if (externalSignal) externalSignal.addEventListener("abort", onExternalAbort);
+        let res;
+        try {
+          res = await fetch(`${base}${path}`, { ...fetchOptions, signal: controller.signal });
+        } finally {
+          clearTimeout(t);
+          if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
+        }
         if (res.ok) return res;
       } catch (e) {
+        if (externalSignal && externalSignal.aborted) throw new DOMException("لغو شد توسط کاربر", "AbortError");
         continue;
       }
     }
@@ -1905,6 +1917,7 @@ export default function ITAssistant() {
   const [adminError, setAdminError] = useState("");
   const [buttons, setButtons] = useState([]);
   const bottomRef = useRef(null);
+  const abortControllerRef = useRef(null); // ۱۸ اوت ۲۰۲۶: برای دکمه‌ی «توقف» موقع لود جواب AI
 
   useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); loadProviderOrder(); }, []);
   useEffect(() => {
@@ -2187,12 +2200,13 @@ export default function ITAssistant() {
   // بلادرنگ می‌خونه و نسخه‌ی تازه رو توی همون ردیف Supabase کش می‌کنه تا سوال‌های بعدی (تا سقف
   // WEB_SOURCE_CACHE_MS) این فچ رو دوباره انجام ندن. query (متن سوال کاربر) هم پاس داده می‌شه تا
   // برای منابعی مثل Navasan، بک‌اند بتونه فقط همون آیتم خاص (مثلاً فقط دلار) رو بگیره، نه کل لیست.
-  const fetchAndCacheWebSource = async (src, query) => {
+  const fetchAndCacheWebSource = async (src, query, signal) => {
     try {
       const res = await fetchWithFallback("/fetch-web-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: src.url, query: query || "" }),
+        signal,
       });
       const data = await res.json();
       if (!res.ok || !data.success) return null;
@@ -2217,6 +2231,8 @@ export default function ITAssistant() {
     setMessages(newMessages);
     if (userId) saveMessage(userId, "user", userText);
     setLoading(true);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     // اگه کاربر داشت به سوال «وصل به شبکه داخلی هستید؟» جواب بله می‌داد، مستقیم دستورات KMS مشروع شرکت رو بده (بدون AI، بدون دانلود فایل)
     {
@@ -2308,7 +2324,7 @@ export default function ITAssistant() {
       const city = extractCity(userText);
       if (city) {
         try {
-          const res = await fetchWithFallback(`/weather?city=${encodeURIComponent(city)}`, { method: "GET" });
+          const res = await fetchWithFallback(`/weather?city=${encodeURIComponent(city)}`, { method: "GET", signal: abortController.signal });
           const data = await res.json();
           if (data.success) {
             const reply = formatWeatherReply(data);
@@ -2335,10 +2351,16 @@ export default function ITAssistant() {
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
         if (isWebSourceStale(matchedSource)) {
-          const fresh = await fetchAndCacheWebSource(matchedSource, userText);
+          const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
           if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
         }
         if (!content) {
+          // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام گمراه‌کننده نشون نده
+          if (abortController.signal.aborted) {
+            setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
+            setLoading(false);
+            return;
+          }
           const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
@@ -2362,6 +2384,7 @@ export default function ITAssistant() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ messages: wsApiMsgs, system_prompt: wsSystemPrompt, force_lmstudio: forceLocalAI, provider_order: providerOrder }),
             timeoutMs: 70000,
+            signal: abortController.signal,
           });
           const data = await res.json();
           if (res.ok && data.reply) {
@@ -2373,7 +2396,13 @@ export default function ITAssistant() {
             return;
           }
         } catch (e) {
-          // پایین یه پیام خطای صریح نشون داده می‌شه
+          // اگه کاربر خودش لغو کرده، پیام «نتونستم جواب بدم» گمراه‌کننده‌ست — پیام خنثی نشون بده
+          if (e.name === "AbortError") {
+            setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
+            setLoading(false);
+            return;
+          }
+          // وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
         }
         const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
         setMessages([...newMessages, { role: "assistant", content: reply }]);
@@ -2444,6 +2473,7 @@ export default function ITAssistant() {
         // می‌مونه (بخش LM Studio Relay رو ببین) — سقف اینجا رو به ۱۰۰ ثانیه بردیم تا زودتر از
         // بک‌اند خودش تسلیم نشه.
         timeoutMs: forceLocalAI ? 130000 : 70000,
+        signal: abortController.signal,
       });
       const data = await res.json();
             if (!res.ok || !data.reply) throw new Error(data?.error || "خطا از سرور");
@@ -2455,7 +2485,14 @@ export default function ITAssistant() {
       if (userId) saveMessage(userId, "assistant", replyWithSource);
       logChat(outOfScope ? "out_of_scope" : (data.source || "ai"), "ai");
     } catch (err) {
-      setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
+      // ۱۸ اوت ۲۰۲۶: اگه کاربر خودش با دکمه‌ی «توقف» درخواست رو لغو کرده، این یه خطای واقعی نیست —
+      // به‌جای پیام «خطا در اتصال»، یه پیام خنثی نشون بده (یا اصلاً چیزی نشون نده، چون کاربر خودش
+      // می‌دونه چیکار کرد)
+      if (err.name === "AbortError") {
+        setMessages([...newMessages, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
+      } else {
+        setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
+      }
     } finally { setLoading(false); }
   };
 
@@ -2529,7 +2566,12 @@ export default function ITAssistant() {
           </div>
         ))}
         {loading && (
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => abortControllerRef.current?.abort()}
+              title="توقف پاسخ"
+              style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #dc3545", background: "white", color: "#dc3545", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, flexShrink: 0 }}
+            >⏹️</button>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🖥️</div>
             <div style={{ padding: "12px 16px", borderRadius: "18px 18px 4px 18px", background: "white", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", display: "flex", gap: 4, alignItems: "center" }}>
               {[0, 1, 2].map(j => <div key={j} style={{ width: 8, height: 8, borderRadius: "50%", background: "#0078d4", opacity: 0.6, animation: `bounce 1.2s ease-in-out ${j * 0.2}s infinite` }} />)}
