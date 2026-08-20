@@ -501,6 +501,13 @@ const searchPhoneDirectory = (docs, term) => {
   if (termWords.length === 0) return [];
   const results = [];
   for (const doc of docs || []) {
+    // ⛔️ ۱۸ اوت ۲۰۲۶: قبلاً هر سندی (حتی یه سند آموزشی کاملاً نامرتبط) که یه خط با عدد ۳-۵ رقمی
+    // داشت بررسی می‌شد — یه سند آموزشی که تصادفاً جایی به شماره‌ی داخلی یه نفر اشاره کرده بود
+    // (مثلاً «شماره داخلی الهه رضایی: ۱۳۰۸» توی یه گزارش ایمنی)، کل محتوای بی‌ربطش وارد نتیجه‌ی
+    // جستجوی تلفن می‌شد. دقیقاً مثل searchEmployeeDirectory (که فقط سندهای «جدول با هدر» رو
+    // می‌بینه)، الان فقط سندهایی که واقعاً موقع آپلود به‌عنوان دایرکتوری تلفن تشخیص داده شدن
+    // (مارکر «(لیست تلفن/داخلی)» از parseDirectoryLikeSheet) در نظر گرفته می‌شن.
+    if (!/\(لیست تلفن\/داخلی\)/.test(doc.content || "")) continue;
     const lines = (doc.content || "").split("\n");
     for (const line of lines) {
       if (!/\d{3,5}/.test(line)) continue; // فقط خط‌هایی که به رکورد تلفن شبیهن (عدد داخلی توشونه)
@@ -768,9 +775,9 @@ const PROVIDER_LABELS = {
   lmstudio: "🖥️ LM Studio (VM محلی)",
   gemini: "✨ Gemini",
   openrouter: "🔀 OpenRouter",
-  cloudflare: "☁️ Cloudflare",
+  nvidia: "💚 NVIDIA",
 };
-const DEFAULT_PROVIDER_ORDER = ["groq", "lmstudio", "gemini", "openrouter", "cloudflare"];
+const DEFAULT_PROVIDER_ORDER = ["groq", "lmstudio", "gemini", "openrouter", "nvidia"];
 
 function AdminPanel({ onClose, onDataChanged }) {
   const [tab, setTab] = useState("buttons");
@@ -1420,8 +1427,7 @@ const handleFileUpload = async (e) => {
         const src = l.source || "unknown";
         const key = src.startsWith("groq") ? "Groq" : 
                     src.startsWith("gemini") ? "Gemini" :
-                    src.startsWith("github") ? "GitHub Models" :
-                    src.startsWith("cloudflare") ? "Cloudflare" : src;
+                    src.startsWith("nvidia") ? "NVIDIA" : src;
         sources[key] = (sources[key] || 0) + 1;
       });
 
@@ -2165,7 +2171,7 @@ export default function ITAssistant() {
   // نهم اوت ۲۰۲۶: برچسب فارسی خوانا برای منبع هر جواب AI — زیر هر جواب نشون داده میشه
   const sourceLabel = (source) => {
     if (!source) return "هوش مصنوعی";
-    if (source.startsWith("groq")) return "Groq (llama-3.3-70b)";
+    if (source.startsWith("groq")) return "Groq (openai/gpt-oss-120b)";
     // ⚠️ ۱۳ اوت ۲۰۲۶: قبلاً اینجا با === "lmstudio_relay" چک می‌شد، ولی source واقعی همیشه
     // به‌شکل "lmstudio_relay:اسم‌مدل" برمی‌گرده (نه دقیقاً "lmstudio_relay") — پس این چک هیچ‌وقت
     // مچ نمی‌شد و به‌جاش رشته‌ی خام فنی مثل "lmstudio_relay:?" مستقیم نمایش داده می‌شد. حالا
@@ -2176,7 +2182,7 @@ export default function ITAssistant() {
     }
     if (source === "gemini") return "Gemini";
     if (source.startsWith("openrouter")) return "OpenRouter (" + source.split(":")[1] + ")";
-    if (source === "cloudflare") return "Cloudflare AI";
+    if (source === "nvidia") return "NVIDIA (llama-3.3-70b)";
     return source;
   };
 
@@ -2529,16 +2535,25 @@ export default function ITAssistant() {
           <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP</div>
           <div style={{ fontSize: 12, opacity: 0.85 }}>پشتیبانی هوشمند فناوری اطلاعات • آنلاین</div>
         </div>
-        <button onClick={() => setShowAdminLogin(true)} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🔐 Login</button>
         <button onClick={async () => {
           setMessages([WELCOME]);
           try { sessionStorage.removeItem("it_assistant_messages"); } catch {}
           if (userId) {
             try { await sbFetch(`chat_history?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" }); } catch {}
           }
-        }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
+        }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
         <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
       </div>
+      {/* ۱۸ اوت ۲۰۲۶: Login فقط برای ادمین (کاربر) لازمه، نه بقیه‌ی کاربرها — قبلاً هم‌ردیف و
+          هم‌اندازه‌ی دکمه‌های عمومی («پاک کردن چت»/«اطلاعیه‌ها») بود که برای همه‌ست. حالا یه دکمه‌ی
+          کوچیک شناور و فقط-آیکون، گوشه‌ی پایین صفحه، جدا از نوار اصلی. */}
+      <button
+        onClick={() => setShowAdminLogin(true)}
+        title="ورود مدیر"
+        style={{ position: "fixed", bottom: 14, left: 14, zIndex: 20, width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.35)", border: "none", color: "white", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.55 }}
+        onMouseEnter={e => { e.currentTarget.style.opacity = 1; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = 0.55; }}
+      >🔐</button>
 
       {buttons.length > 0 && (
         <div style={{ background: "#fff", borderBottom: showQuickButtons ? "1px solid #e0e0e0" : "none" }}>
@@ -2550,9 +2565,9 @@ export default function ITAssistant() {
             <span style={{ fontSize: 12, transition: "transform 0.2s", transform: showQuickButtons ? "rotate(0deg)" : "rotate(180deg)" }}>▲</span>
           </div>
           {showQuickButtons && (
-            <div style={{ padding: "10px 16px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ padding: "clamp(6px,1.5vw,10px) clamp(10px,3vw,16px)", display: "flex", gap: "clamp(4px,1vw,8px)", flexWrap: "wrap" }}>
               {buttons.map((q) => (
-                <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" }}
+                <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "clamp(4px,0.8vw,6px) clamp(8px,1.6vw,12px)", borderRadius: 20, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: "clamp(10px,1.6vw,12px)", fontFamily: "inherit", whiteSpace: "nowrap" }}
                   onMouseEnter={e => { e.target.style.background = "#0078d4"; e.target.style.color = "white"; }}
                   onMouseLeave={e => { e.target.style.background = "white"; e.target.style.color = "#0078d4"; }}
                 >{q.label}</button>
