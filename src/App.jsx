@@ -2543,17 +2543,15 @@ export default function ITAssistant() {
           }
         }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
         <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
+        {/* ۱۸ اوت ۲۰۲۶: نسخه‌ی قبلی (شناور، گوشه‌ی پایین‌چپ) دقیقاً روی دکمه‌ی ارسال چت می‌افتاد —
+            بدترین جای ممکن. برگشت به همون نوار بالا، ولی این‌بار یه لینک متنیِ ریز (نه دکمه‌ی
+            هم‌اندازه‌ی بقیه)، چون فقط برای ادمینه. */}
+        <span
+          onClick={() => setShowAdminLogin(true)}
+          title="ورود مدیر"
+          style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", textDecoration: "underline", cursor: "pointer", flexShrink: 0 }}
+        >ورود</span>
       </div>
-      {/* ۱۸ اوت ۲۰۲۶: Login فقط برای ادمین (کاربر) لازمه، نه بقیه‌ی کاربرها — قبلاً هم‌ردیف و
-          هم‌اندازه‌ی دکمه‌های عمومی («پاک کردن چت»/«اطلاعیه‌ها») بود که برای همه‌ست. حالا یه دکمه‌ی
-          کوچیک شناور و فقط-آیکون، گوشه‌ی پایین صفحه، جدا از نوار اصلی. */}
-      <button
-        onClick={() => setShowAdminLogin(true)}
-        title="ورود مدیر"
-        style={{ position: "fixed", bottom: 14, left: 14, zIndex: 20, width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.35)", border: "none", color: "white", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.55 }}
-        onMouseEnter={e => { e.currentTarget.style.opacity = 1; }}
-        onMouseLeave={e => { e.currentTarget.style.opacity = 0.55; }}
-      >🔐</button>
 
       {buttons.length > 0 && (
         <div style={{ background: "#fff", borderBottom: showQuickButtons ? "1px solid #e0e0e0" : "none" }}>
