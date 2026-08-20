@@ -2529,7 +2529,7 @@ export default function ITAssistant() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxHeight: "-webkit-fill-available", background: "#f0f2f5", fontFamily: "'Segoe UI', Tahoma, sans-serif", direction: "rtl", overflow: "hidden" }}>
-      <div style={{ position: "relative", background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+      <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
         <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖥️</div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP</div>
@@ -2541,14 +2541,16 @@ export default function ITAssistant() {
           if (userId) {
             try { await sbFetch(`chat_history?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" }); } catch {}
           }
-        }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
-        <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
-        {/* ۱۸ اوت ۲۰۲۶: position:absolute دقیقاً روی گوشه‌ی بالا-چپ کادر هدر (نه فقط انتهای ردیف
-            flex، که با تغییر عرض محتوا ممکنه دقیقاً روی گوشه نیفته) */}
+        }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
+        <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
+        {/* ۱۸ اوت ۲۰۲۶: نسخه‌ی position:absolute یه فاصله‌ی سفید بالای کادر آبی ایجاد می‌کرد (احتمالاً
+            به‌خاطر تداخل با اسکرول/استکینگ کانتینر بیرونی). حالا Login عضو عادی همون ردیف flex
+            هدره (نه absolute) — با alignSelf:flex-start فقط بالای همون ردیف (نه وسط‌چین مثل بقیه)
+            قرار می‌گیره، پس همیشه داخل کادر آبی، دقیقاً گوشه‌ی بالا-چپش می‌مونه. */}
         <span
           onClick={() => setShowAdminLogin(true)}
           title="ورود مدیر"
-          style={{ position: "absolute", top: 10, left: 14, fontSize: 11, color: "rgba(255,255,255,0.6)", textDecoration: "underline", cursor: "pointer" }}
+          style={{ alignSelf: "flex-start", fontSize: 11, color: "rgba(255,255,255,0.6)", textDecoration: "underline", cursor: "pointer", flexShrink: 0 }}
         >Login</span>
       </div>
 
@@ -2564,7 +2566,7 @@ export default function ITAssistant() {
           {showQuickButtons && (
             <div style={{ padding: "clamp(4px,1vw,7px) clamp(8px,2vw,12px)", display: "flex", gap: "clamp(3px,0.7vw,6px)", flexWrap: "wrap" }}>
               {buttons.map((q) => (
-                <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "clamp(2px,0.5vw,4px) clamp(6px,1.2vw,9px)", borderRadius: 16, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: "clamp(9px,1.2vw,10.5px)", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                <button key={q.id} onClick={() => sendButtonMessage(q.question)} style={{ padding: "clamp(2px,0.5vw,4px) clamp(6px,1.2vw,9px)", borderRadius: 16, border: "1px solid #0078d4", background: "white", color: "#0078d4", cursor: "pointer", fontSize: "clamp(9px,1.2vw,10.5px)", fontWeight: 600, fontFamily: "inherit", whiteSpace: "nowrap" }}
                   onMouseEnter={e => { e.target.style.background = "#0078d4"; e.target.style.color = "white"; }}
                   onMouseLeave={e => { e.target.style.background = "white"; e.target.style.color = "#0078d4"; }}
                 >{q.label}</button>
