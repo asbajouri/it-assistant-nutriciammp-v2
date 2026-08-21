@@ -77,6 +77,17 @@ const wordBoundaryIncludes = (haystackNorm, needleNorm) => {
   }
 };
 
+// ۱۸ اوت ۲۰۲۶: وقتی یه کلیدواژه‌ی چندکلمه‌ای (مثلاً «طلای آب شده») به تک‌تک کلمات شکسته می‌شه
+// (پایین‌تر توضیح داده شده چرا لازمه)، کلمه‌های خیلی رایج/کمکی فارسی («شده»، «است»، «را»، ...)
+// نباید خودشون به‌تنهایی یه کلیدواژه‌ی معتبر بشن — وگرنه هر جمله‌ی کاملاً نامرتبطی که تصادفاً
+// شامل «شده» باشه (مثل «ویندوزم کند شده») اشتباهی مچ می‌خوره. عبارت کامل («طلای آب شده») همچنان
+// به‌طور کامل یه کلیدواژه‌ی معتبره؛ فقط تک‌کلمه‌های داخلش که توی این لیستن فیلتر می‌شن.
+const WEB_SOURCE_STOPWORDS = new Set([
+  "شده", "است", "بود", "را", "به", "در", "از", "با", "برای", "تا", "که", "این", "آن", "و", "یا",
+  "هم", "هر", "یک", "دو", "چه", "چی", "می", "نمی", "اگر", "تو", "من", "ما", "شما", "او", "بر",
+  "روی", "زیر", "بین", "پس", "قبل", "بعد", "چون", "اما", "ولی", "نیز", "دیگر", "خود",
+]);
+
 const matchWebSource = (userText, sources) => {
   if (!sources || sources.length === 0) return null;
   const userNorm = normalizeText(userText);
@@ -91,7 +102,7 @@ const matchWebSource = (userText, sources) => {
     for (const part of parts) {
       const norm = normalizeText(part);
       if (norm.length >= 2) terms.add(norm);
-      for (const w of norm.split(/\s+/)) { if (w.length >= 2) terms.add(w); }
+      for (const w of norm.split(/\s+/)) { if (w.length >= 2 && !WEB_SOURCE_STOPWORDS.has(w)) terms.add(w); }
     }
     let score = 0;
     for (const term of terms) { if (wordBoundaryIncludes(userNorm, term)) score++; }
