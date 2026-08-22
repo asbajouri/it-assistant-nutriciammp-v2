@@ -1413,6 +1413,18 @@ const handleFileUpload = async (e) => {
 
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  // ۲۱ اوت ۲۰۲۶: سهمیه‌ی تخمینی روزانه‌ی provider ها
+  const [quotaStatus, setQuotaStatus] = useState(null);
+  const [quotaLoading, setQuotaLoading] = useState(false);
+  const loadQuotaStatus = async () => {
+    setQuotaLoading(true);
+    try {
+      const res = await fetchWithFallback("/quota-status", { method: "GET", timeoutMs: 15000 });
+      const data = await res.json();
+      if (res.ok) setQuotaStatus(data);
+    } catch { /* اگه لود نشد، بخش سهمیه خالی می‌مونه ولی بقیه‌ی آمار مشکلی نداره */ }
+    setQuotaLoading(false);
+  };
 
   const loadStats = async () => {
     setStatsLoading(true);
@@ -1500,7 +1512,7 @@ const handleFileUpload = async (e) => {
           <button style={tabStyle("docs")} onClick={() => setTab("docs")}>📚 اسناد آموزشی</button>
           <button style={tabStyle("websources")} onClick={() => setTab("websources")}>🌐 منابع وب</button>
           <button style={tabStyle("announcements")} onClick={() => setTab("announcements")}>📢 اطلاعیه‌ها</button>
-          <button style={tabStyle("stats")} onClick={() => { setTab("stats"); loadStats(); }}>📊 آمار</button>
+          <button style={tabStyle("stats")} onClick={() => { setTab("stats"); loadStats(); loadQuotaStatus(); }}>📊 آمار</button>
         </div>
 
         <div style={{ padding: 20 }}>
@@ -1577,6 +1589,66 @@ const handleFileUpload = async (e) => {
                     <div style={{ fontWeight: 600, color: "#333", flex: 1 }}>{idx + 1}. {PROVIDER_LABELS[p] || p}</div>
                   </div>
                 ))}
+              </div>
+
+              {/* ۲۱ اوت ۲۰۲۶: سهمیه‌ی تخمینی روزانه‌ی provider ها — دقت هر بخش کنارش نوشته شده،
+                  چون بعضی‌ها واقعاً زنده‌ن (Groq تعداد درخواست، OpenRouter اعتبار) و بعضی‌ها فقط
+                  تخمین شمارش خودمونه (Gemini/NVIDIA، و توکن روزانه‌ی Groq) — این provider ها
+                  endpoint رسمی برای «سهمیه‌ی باقیمونده» ندارن. */}
+              <div style={{ background: "#f8f9fa", border: "2px solid #0078d422", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0078d4" }}>🔋 سهمیه‌ی روزانه‌ی هوش مصنوعی‌ها</div>
+                  <button onClick={loadQuotaStatus} disabled={quotaLoading} style={{ padding: "4px 10px", background: "#0078d4", color: "white", border: "none", borderRadius: 14, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>
+                    {quotaLoading ? "..." : "🔄 بروزرسانی"}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: "#999", marginBottom: 12 }}>
+                  Groq (تعداد درخواست) و OpenRouter زنده و رسمی‌ان؛ Gemini/NVIDIA و توکن روزانه‌ی Groq فقط تخمینِ شمارش خودمون از آخرین ری‌استارت سرورن (این دو provider endpoint رسمی برای سهمیه ندارن).
+                </div>
+                {quotaLoading && !quotaStatus ? (
+                  <div style={{ textAlign: "center", padding: 16, color: "#999", fontSize: 12 }}>در حال بارگذاری...</div>
+                ) : quotaStatus ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+                    {Object.entries(quotaStatus.groq || {}).map(([label, g]) => {
+                      const reqPct = g.remaining_requests != null && g.limit_requests ? Math.round((g.remaining_requests / g.limit_requests) * 100) : null;
+                      const tpdPct = g.tpd_known_limit ? Math.max(0, Math.round(((g.tpd_known_limit - g.tokens_used_today_estimate) / g.tpd_known_limit) * 100)) : null;
+                      return (
+                        <div key={label} style={{ background: "white", border: "1px solid #e0e0e0", borderRadius: 8, padding: "10px 12px" }}>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 6 }}>⚡ Groq {label}</div>
+                          <div style={{ fontSize: 11, color: "#666" }}>
+                            درخواست امروز: {g.remaining_requests != null ? `${g.remaining_requests} / ${g.limit_requests} باقیمونده${reqPct != null ? ` (${reqPct}٪)` : ""}` : "هنوز درخواستی نرفته"}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                            توکن امروز (تخمینی): ~{g.tokens_used_today_estimate.toLocaleString("fa-IR")} از {g.tpd_known_limit.toLocaleString("fa-IR")}{tpdPct != null ? ` (${tpdPct}٪ باقی)` : ""}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {quotaStatus.openrouter && (
+                      <div style={{ background: "white", border: "1px solid #e0e0e0", borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 6 }}>🔀 OpenRouter</div>
+                        <div style={{ fontSize: 11, color: "#666" }}>
+                          اعتبار: {quotaStatus.openrouter.limit != null ? `${quotaStatus.openrouter.usage ?? 0} / ${quotaStatus.openrouter.limit}` : "نامحدود/رایگان"}
+                        </div>
+                        {quotaStatus.openrouter.rate_limit && (
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                            محدودیت نرخ: {quotaStatus.openrouter.rate_limit.requests} درخواست / {quotaStatus.openrouter.rate_limit.interval}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ background: "white", border: "1px solid #e0e0e0", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 6 }}>✨ Gemini</div>
+                      <div style={{ fontSize: 11, color: "#666" }}>درخواست امروز (تخمینی): {quotaStatus.gemini_requests_today_estimate}</div>
+                    </div>
+                    <div style={{ background: "white", border: "1px solid #e0e0e0", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 6 }}>💚 NVIDIA</div>
+                      <div style={{ fontSize: 11, color: "#666" }}>درخواست امروز (تخمینی): {quotaStatus.nvidia_requests_today_estimate}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 16, color: "#999", fontSize: 12 }}>دکمه‌ی بروزرسانی رو بزن</div>
+                )}
               </div>
 
               {statsLoading ? (
