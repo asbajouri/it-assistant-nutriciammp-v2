@@ -89,7 +89,7 @@ const WEB_SOURCE_STOPWORDS = new Set([
 ]);
 
 const matchWebSource = (userText, sources) => {
-  if (!sources || sources.length === 0) return [];
+  if (!sources || sources.length === 0) return null;
   const userNorm = normalizeText(userText);
   const candidates = [];
   for (const src of sources) {
@@ -108,19 +108,17 @@ const matchWebSource = (userText, sources) => {
     for (const term of terms) { if (wordBoundaryIncludes(userNorm, term)) score++; }
     if (score > 0) candidates.push({ src, score });
   }
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return null;
   // وقتی چندتا منبع هم‌زمان با یه سوال مچ می‌شن (مثلاً هم Navasan هم tgju.org روی «دلار»)، اولویت
   // (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰) تعیین‌کننده‌ی اصلیه، نه صرفاً تعداد کلیدواژه‌های مچ‌شده — تا
   // ادمین بتونه صریح بگه همیشه فلان منبع رو ترجیح بده. فقط وقتی اولویت دو منبع برابر بود، امتیاز
   // (تعداد کلیدواژه‌ی مچ‌شده) تصمیم می‌گیره.
-  // ۲۲ اوت ۲۰۲۶: کل لیست مرتب‌شده برمی‌گرده (نه فقط بهترین یکی) — تا اگه بهترین منبع (اولویت ۰)
-  // فچ/جوابش شکست خورد، فراخوان بتونه سریع بره سراغ اولویت بعدی، به‌جای نشون‌دادن خطا.
   candidates.sort((a, b) => {
     const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
     if (pa !== pb) return pa - pb;
     return b.score - a.score;
   });
-  return candidates.map(c => c.src);
+  return candidates[0].src;
 };
 const isWebSourceStale = (src) => {
   // منابع Navasan همیشه بلادرنگ فچ می‌شن، نه از کش: چون بعضی درخواست‌ها فقط یه آیتم خاص (مثلاً
@@ -575,11 +573,6 @@ const wordsLikelyMatch = (queryWord, dataWord) => {
   return qSkeleton === dSkeleton;
 };
 
-// ۲۲ اوت ۲۰۲۶: تشخیص سوال‌های خبری (سیاسی/اقتصادی/ورزشی/کریپتو و غیره) — مسیر جدا با جست‌وجوی
-// زنده‌ی واقعی گوگل (Gemini grounding)، نه «منابع وب» (که برای قیمت لحظه‌ای طراحی شده) و نه AI
-// عادی (که حافظه‌ش قدیمیه و برای «اخبار امروز» می‌تونه کاملاً ساختگی جواب بده).
-const isNewsQuery = (text) => /اخبار|خبرها|خبر(ه(ا|ای))?|تیتر/i.test(text);
-
 const isEmployeeLookupQuery = (text) =>
   /ایمیل|پست\s*الکترونیک|e-?mail/i.test(text) &&
   !/(فراموش|بازیابی|reset|forgot|عوض\s*کن|change).{0,15}(ایمیل|پسورد|پسوورد|رمز|password)/i.test(text);
@@ -605,20 +598,6 @@ const resolveFollowupSearchTerm = (currentTerm, recentMessages) => {
     if (candidate && candidate.trim().length >= 2) return candidate;
   }
   return currentTerm;
-};
-
-// ۲۲ اوت ۲۰۲۶: اگه فرد توی هیچ سند دایرکتوری‌ای پیدا نشد، طبق تصمیم صریح ادمین، یه ایمیل حدسی بر
-// اساس الگوی استاندارد شرکت (نام.نام‌خانوادگی@nutricia-mmp.com) بساز — با تأکید روی این‌که این
-// فقط یه حدسه، نه یه رکورد تأییدشده (تا کاربر بی‌احتیاط بهش اعتماد نکنه).
-const COMPANY_EMAIL_DOMAIN = "nutricia-mmp.com";
-const guessCompanyEmail = (term) => {
-  const words = (term || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return null;
-  const toLatinPart = (w) => transliterateFaToLatin(w).toLowerCase().replace(/[^a-z]/g, "");
-  const parts = words.map(toLatinPart).filter(p => p.length > 0);
-  if (parts.length === 0) return null;
-  const local = parts.length === 1 ? parts[0] : `${parts[0]}.${parts[parts.length - 1]}`;
-  return `${local}@${COMPANY_EMAIL_DOMAIN}`;
 };
 
 const searchEmployeeDirectory = (docs, term) => {
@@ -2450,18 +2429,7 @@ export default function ITAssistant() {
           setLoading(false);
           return;
         }
-        // ۲۲ اوت ۲۰۲۶: اگه توی سندها پیدا نشد، طبق تصمیم صریح ادمین یه ایمیل حدسی بر اساس الگوی
-        // استاندارد شرکت بساز — با ذکر صریح که تأییدشده نیست، تا سوءاستفاده/اتکای نادرست پیش نیاد
-        const guessed = guessCompanyEmail(term);
-        if (guessed) {
-          const reply = `توی سندهای ثبت‌شده آدرس دقیق «${term}» پیدا نشد. طبق الگوی استاندارد ایمیل سازمانی، احتمالاً آدرسش اینه:\n\n📧 ${guessed}\n\n⚠️ این فقط بر اساس الگوی رایج شرکت ساخته شده، تأییدشده نیست — قبل از استفاده با خودِ فرد یا واحد IT تأیید کن.`;
-          setMessages([...newMessages, { role: "assistant", content: reply }]);
-          if (userId) saveMessage(userId, "assistant", reply);
-          logChat("employee_lookup_guessed", "deterministic");
-          setLoading(false);
-          return;
-        }
-        // اگه حتی حدس هم ممکن نبود (مثلاً term خالی بود)، بذار جریان عادی AI ادامه پیدا کنه
+        // اگه هیچ match‌ای نبود، بذار جریان عادی AI ادامه پیدا کنه (شاید سند اصلاً «جدول با هدر» نیست)
       } catch (e) {
         // بذار جریان عادی AI ادامه پیدا کنه
       }
@@ -2511,126 +2479,69 @@ export default function ITAssistant() {
       }
     }
 
-    // اگه سوال خبری بود (سیاسی/اقتصادی/ورزشی/کریپتو و غیره)، مستقیم با جست‌وجوی زنده‌ی واقعی گوگل
-    // (از طریق Gemini grounding) جواب بده — نه از حافظه‌ی مدل. عمداً به هیچ‌کدوم از مسیرهای دیگه
-    // سقوط نمی‌کنه، چون بدون جست‌وجوی واقعی، هر «خبر امروز»ی که AI بگه می‌تونه کاملاً ساختگی/قدیمی باشه.
-    if (isNewsQuery(userText)) {
-      try {
-        const res = await fetchWithFallback("/news-grounded", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userText }),
-          timeoutMs: 40000,
-          signal: abortController.signal,
-        });
-        const data = await res.json();
-        if (res.ok && data.success && data.reply) {
-          const sourceLines = (data.sources || []).slice(0, 10).map(s => `- ${s.title}: ${s.url}`).join("\n");
-          const reply = cleanText(data.reply) + (sourceLines ? `\n\n—\nمنابع:\n${sourceLines}` : "\n\n—\nمنبع: جست‌وجوی زنده‌ی Google (از طریق Gemini)");
-          setMessages([...newMessages, { role: "assistant", content: reply }]);
-          if (userId) saveMessage(userId, "assistant", reply);
-          logChat("news_grounded", "ai");
-          setLoading(false);
-          return;
-        }
-        const reply = `⚠️ الان نتونستم اخبار زنده بگیرم${data.error ? ` (${data.error})` : ""}. لطفاً دوباره امتحان کنید.`;
-        setMessages([...newMessages, { role: "assistant", content: reply }]);
-        if (userId) saveMessage(userId, "assistant", reply);
-        logChat("news_grounded_failed", "deterministic");
-        setLoading(false);
-        return;
-      } catch (e) {
-        if (e.name === "AbortError") { setLoading(false); return; }
-        const reply = "⚠️ الان نتونستم اخبار زنده بگیرم. لطفاً دوباره امتحان کنید.";
-        setMessages([...newMessages, { role: "assistant", content: reply }]);
-        if (userId) saveMessage(userId, "assistant", reply);
-        logChat("news_grounded_failed", "deterministic");
-        setLoading(false);
-        return;
-      }
-    }
-
     // اگه سوال با کلیدواژه‌ی یکی از «منابع وب» (پنل مدیریت) مچ شد، محتوای واقعی همون سایت رو
     // (بلادرنگ یا از کش چند دقیقه‌ای) به AI بده تا دقیقاً از روی همون متن جواب بده. عمداً به جریان
     // عادی AI (پایین) سقوط نمی‌کنه، چون اگه سایت در دسترس نباشه، اجازه‌ی جواب‌دادن AI از حافظه‌ی
     // خودش (که برای قیمت لحظه‌ای ارز/دلار می‌تونه کاملاً ساختگی باشه) خطرناک‌تر از نشون‌دادن خطاست.
-    // ۲۲ اوت ۲۰۲۶: اگه چندتا منبع مچ بشن، دیگه فقط بهترین (اولویت ۰) امتحان نمی‌شه — اگه فچ یا
-    // جواب اون شکست بخوره، سریع می‌ره سراغ اولویت بعدی؛ فقط وقتی همه شکست خوردن خطا نشون داده می‌شه.
     try {
       const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
-      const matchedSources = matchWebSource(userText, webSources);
-      if (matchedSources.length > 0) {
-        for (let msIdx = 0; msIdx < matchedSources.length; msIdx++) {
-          const matchedSource = matchedSources[msIdx];
-          const isLastCandidate = msIdx === matchedSources.length - 1;
-          let content = matchedSource.last_content;
-          let fetchedAt = matchedSource.last_fetched_at;
-          if (isWebSourceStale(matchedSource)) {
-            const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
-            if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
-          }
-          if (!content) {
-            // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام «متوقف شد» رو دکمه‌ی
-            // توقف خودش همون لحظه‌ی کلیک اضافه کرده — اینجا فقط ساکت برمی‌گردیم، دوباره اضافه نمی‌کنیم
-            if (stoppedByUserRef.current) { setLoading(false); return; }
-            if (!isLastCandidate) continue; // برو سراغ منبع بعدی (اولویت پایین‌تر)
-            const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
-            setMessages([...newMessages, { role: "assistant", content: reply }]);
-            if (userId) saveMessage(userId, "assistant", reply);
-            logChat("web_source_fetch_failed", "deterministic");
-            setLoading(false);
-            return;
-          }
-          const wsSystemPrompt =
-            "تو داری بر اساس محتوای واقعیِ همین الانِ یک صفحه‌ی وب به سوال کاربر جواب می‌دی. فقط و فقط از متن زیر استفاده کن؛ " +
-            "هیچ عدد یا اطلاعاتی از حافظه‌ی خودت یا حدس اضافه نکن. اگه جواب دقیق سوال کاربر توی این متن نبود، صادقانه بگو توی " +
-            "این صفحه پیدا نشد. جواب رو کوتاه و مستقیم (فقط همون عدد/مقداری که کاربر خواسته) بده، بدون توضیح اضافه مگر لازم باشه.\n\n" +
-            "قوانین قطعیِ واحد پول (این قوانین رو با اولویت بالاتر از هر برداشتی از متن منبع اجرا کن):\n" +
-            "۱. طلا: منظور از «طلا» بدون قید دیگه، طلای ۱۸ عیار (هر گرم) هست — قیمتش رو به تومان بگو.\n" +
-            "۲. سکه: منظور از «سکه» بدون قید دیگه، سکه‌ی تمام امامی (یا طرح جدید، اگه هر دو بود طرح جدید رو ترجیح بده) " +
-            "هست — قیمتش رو به تومان بگو. اگه کاربر صریحاً نیم‌سکه/ربع‌سکه/سکه‌ی طرح قدیم/گرمی خواست، همون رو بده.\n" +
-            "۳. دلار یا تتر (USDT): همیشه قیمتشون رو به تومان بگو (نه دلار).\n" +
-            "۴. بقیه‌ی رمزارزها (بیت‌کوین، اتریوم و غیره — به‌جز تتر): همیشه فقط نسخه‌ی دلاری رو بگو (خطی که با " +
-            "«به دلار» یا dollar_rate مشخص شده)، حتی اگه کاربر واحد خاصی نخواسته باشه — مگر اینکه صریحاً تومان بخواد.\n" +
-            "۵. برای هر چیز دیگه‌ای که توی این ۴ قانون نیومده، فقط و فقط دقیقاً همون واحدی که توی خودِ متن منبع صریحاً " +
-            "نوشته شده رو بگو؛ هیچ‌وقت بر اساس «سایت‌های ایرانی معمولاً فلان واحدن» یا هر قاعده‌ی کلی دیگه حدس نزن " +
-            "(خیلی از سایت‌ها ریال می‌نویسن نه تومان — این دو ده برابر همدیگه‌ن). اگه واحد صریح نبود، بگو مشخص نشده.\n\n" +
-            `=== محتوای صفحه (${matchedSource.label} — ${matchedSource.url}) ===\n${content}`;
-          const wsApiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
-          // ۲۲ اوت ۲۰۲۶: برای منابع وب (قیمت‌ها) کاربر صریح خواسته همیشه اول از Gemini جواب گرفته
-          // بشه (دقیق‌تره) — صرف‌نظر از ترتیب عمومی provider ها توی پنل مدیریت. اگه Gemini جواب نداد،
-          // fetchWithFallback/زنجیره‌ی /chat خودش می‌ره سراغ provider بعدی طبق همین ترتیب.
-          const wsProviderOrder = ["gemini", ...providerOrder.filter(p => p !== "gemini")];
-          try {
-            const res = await fetchWithFallback("/chat", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ messages: wsApiMsgs, system_prompt: wsSystemPrompt, force_lmstudio: forceLocalAI, provider_order: wsProviderOrder }),
-              timeoutMs: 70000,
-              signal: abortController.signal,
-            });
-            const data = await res.json();
-            if (res.ok && data.reply) {
-              const reply = `${cleanText(data.reply)}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
-              setMessages([...newMessages, { role: "assistant", content: reply }]);
-              if (userId) saveMessage(userId, "assistant", reply);
-              logChat("web_source:" + matchedSource.label, "ai");
-              setLoading(false);
-              return;
-            }
-          } catch (e) {
-            // اگه کاربر خودش لغو کرده، دکمه‌ی توقف خودش همون لحظه پیام رو اضافه کرده — دوباره اضافه نکن
-            if (e.name === "AbortError") { setLoading(false); return; }
-            // وگرنه (اگه منبع بعدی هست) برو سراغش؛ وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
-          }
-          if (!isLastCandidate) continue; // اولویت بعدی رو امتحان کن
-          const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
+      const matchedSource = matchWebSource(userText, webSources);
+      if (matchedSource) {
+        let content = matchedSource.last_content;
+        let fetchedAt = matchedSource.last_fetched_at;
+        if (isWebSourceStale(matchedSource)) {
+          const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
+          if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
+        }
+        if (!content) {
+          // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام «متوقف شد» رو دکمه‌ی
+          // توقف خودش همون لحظه‌ی کلیک اضافه کرده — اینجا فقط ساکت برمی‌گردیم، دوباره اضافه نمی‌کنیم
+          if (stoppedByUserRef.current) { setLoading(false); return; }
+          const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
-          logChat("web_source_ai_failed", "deterministic");
+          logChat("web_source_fetch_failed", "deterministic");
           setLoading(false);
           return;
         }
+        const wsSystemPrompt =
+          "تو داری بر اساس محتوای واقعیِ همین الانِ یک صفحه‌ی وب به سوال کاربر جواب می‌دی. فقط و فقط از متن زیر استفاده کن؛ " +
+          "هیچ عدد یا اطلاعاتی از حافظه‌ی خودت یا حدس اضافه نکن. اگه جواب دقیق سوال کاربر توی این متن نبود، صادقانه بگو توی " +
+          "این صفحه پیدا نشد. جواب رو کوتاه و مستقیم (فقط همون عدد/مقداری که کاربر خواسته) بده، بدون توضیح اضافه مگر لازم باشه. " +
+          "خیلی مهم درباره‌ی واحد عدد (تومان/ریال/دلار/درصد/...): فقط و فقط دقیقاً همون واحدی که توی خودِ متن منبع (مثلاً کنار " +
+          "عنوان ستون یا جلوی همون عدد) صریحاً نوشته شده رو بگو — هیچ‌وقت بر اساس این‌که «سایت‌های ایرانی معمولاً فلان واحدن» یا " +
+          "هر قاعده‌ی کلی دیگه حدس نزن، چون خیلی از سایت‌ها ریال می‌نویسن نه تومان (این دو ده برابر همدیگه‌ن و اشتباهش خیلی مهمه). " +
+          "اگه واحد توی متن منبع صریحاً ذکر نشده بود، صادقانه بگو واحدش توی این صفحه مشخص نشده.\n\n" +
+          `=== محتوای صفحه (${matchedSource.label} — ${matchedSource.url}) ===\n${content}`;
+        const wsApiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
+        try {
+          const res = await fetchWithFallback("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: wsApiMsgs, system_prompt: wsSystemPrompt, force_lmstudio: forceLocalAI, provider_order: providerOrder }),
+            timeoutMs: 70000,
+            signal: abortController.signal,
+          });
+          const data = await res.json();
+          if (res.ok && data.reply) {
+            const reply = `${cleanText(data.reply)}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("web_source:" + matchedSource.label, "ai");
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // اگه کاربر خودش لغو کرده، دکمه‌ی توقف خودش همون لحظه پیام رو اضافه کرده — دوباره اضافه نکن
+          if (e.name === "AbortError") { setLoading(false); return; }
+          // وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
+        }
+        const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
+        setMessages([...newMessages, { role: "assistant", content: reply }]);
+        if (userId) saveMessage(userId, "assistant", reply);
+        logChat("web_source_ai_failed", "deterministic");
+        setLoading(false);
+        return;
       }
     } catch (e) {
       // اگه خوندن web_sources خطا داد (مثلاً جدولش هنوز توی Supabase ساخته نشده)، بذار جریان عادی AI ادامه پیدا کنه
