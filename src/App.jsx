@@ -479,6 +479,20 @@ const pickRelevantSheet = (content) => {
 // "توی منو چی هست؟" آسیب بزنه.
 const isMenuQuery = (text) => /غذا|ناهار|کانتین/i.test(text) || /(?<!م)منو/.test(text);
 
+// تشخیص سوال اخبار — قبل از منابع وب تا «اخبار کریپتو» به Navasan نرود
+const isNewsQuery = (text) =>
+  /اخبار|خبر\s*روز|تیتر|headline|news/i.test(text) &&
+  !/قیمت|چنده|چند\s*است|نرخ/i.test(text); // قیمت بیت‌کوین ≠ اخبار بیت‌کوین
+
+const guessNewsCategory = (text) => {
+  const t = (text || "").replace(/\u200c/g, " ");
+  if (/کریپتو|ارز\s*دیجیتال|بیت\s*کوین|رمزارز|crypto|bitcoin/i.test(t)) return "crypto";
+  if (/ورزش|فوتبال|لیگ|المپیک|sport/i.test(t)) return "sports";
+  if (/اقتصاد|بورس|بازار|تورم|economic/i.test(t)) return "economic";
+  if (/سیاس|سیاست|انتخاب|دولت|political/i.test(t)) return "political";
+  return "general";
+};
+
 // === جستجوی قطعی لیست تلفن داخلی — بدون هوش مصنوعی ===
 // مدل‌ها توی جستجوی partial/fuzzy داخل سندهای بزرگ قابل‌اعتماد نیستن (مثلاً "رضایی" رو پیدا نمی‌کنن مگه اسم کامل دقیق بدی)
 // این تابع مستقیم توی متن سندها دنبال خط‌هایی می‌گرده که هم شبیه رکورد تلفن باشن (عدد ۳ تا ۵ رقمی داشته باشن) هم عبارت جستجو رو داشته باشن
@@ -2487,6 +2501,36 @@ export default function ITAssistant() {
         } catch (e) {
           // اگه weather API در دسترس نبود، بذار جریان عادی AI ادامه پیدا کنه
         }
+      }
+    }
+
+    // اخبار روز — قبل از منابع وب تا «اخبار کریپتو» اشتباهاً به Navasan نرود
+    if (isNewsQuery(userText)) {
+      try {
+        const cat = guessNewsCategory(userText);
+        const res = await fetchWithFallback(
+          `/news?category=${encodeURIComponent(cat)}&q=${encodeURIComponent(userText)}`,
+          { method: "GET", signal: abortController.signal }
+        );
+        const data = await res.json();
+        if (data.success && data.reply) {
+          setMessages([...newMessages, { role: "assistant", content: data.reply }]);
+          if (userId) saveMessage(userId, "assistant", data.reply);
+          logChat("news:" + (data.category || cat), "deterministic");
+          setLoading(false);
+          return;
+        }
+        if (data.error) {
+          const reply = `⚠️ ${data.error}`;
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("news_failed", "deterministic");
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        if (e.name === "AbortError") { setLoading(false); return; }
+        // در خطا بگذار جریان عادی ادامه پیدا کند
       }
     }
 
