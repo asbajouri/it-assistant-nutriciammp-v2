@@ -2368,7 +2368,11 @@ export default function ITAssistant() {
           body: JSON.stringify({ last_content: data.content, last_fetched_at: fetchedAtIso }),
         });
       } catch { /* اگه ذخیره‌ی کش توی Supabase خطا داد، بازم می‌تونیم از همون محتوای تازه‌خونده‌شده برای همین یه سوال استفاده کنیم */ }
-      return { content: data.content, fetched_at: fetchedAtIso };
+      return {
+        content: data.content,
+        fetched_at: fetchedAtIso,
+        deterministic_reply: data.deterministic_reply || null,
+      };
     } catch {
       return null;
     }
@@ -2535,22 +2539,39 @@ export default function ITAssistant() {
     }
 
     // اگه سوال با کلیدواژه‌ی یکی از «منابع وب» (پنل مدیریت) مچ شد، محتوای واقعی همون سایت رو
-    // (بلادرنگ یا از کش چند دقیقه‌ای) به AI بده تا دقیقاً از روی همون متن جواب بده. عمداً به جریان
-    // عادی AI (پایین) سقوط نمی‌کنه، چون اگه سایت در دسترس نباشه، اجازه‌ی جواب‌دادن AI از حافظه‌ی
-    // خودش (که برای قیمت لحظه‌ای ارز/دلار می‌تونه کاملاً ساختگی باشه) خطرناک‌تر از نشون‌دادن خطاست.
+    // بلادرنگ بگیر. برای قیمت‌های Navasan جواب قطعی (بدون AI) برمی‌گرده تا عدد اشتباه ساخته نشه.
     try {
       const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
-      const matchedSource = matchWebSource(userText, webSources);
+      let matchedSource = matchWebSource(userText, webSources);
+      // برای سوالات قیمتی: اگر Navasan بین منابع هست، اجباراً همون رو بگیر (نه estjt/salari)
+      const isPriceQ = /طلا|دلار|سکه|تتر|یورو|پوند|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|قیمت/i.test(userText);
+      if (isPriceQ && webSources && webSources.length) {
+        const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
+        if (navasan) matchedSource = navasan;
+      }
       if (matchedSource) {
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
-        if (isWebSourceStale(matchedSource)) {
+        let deterministicReply = null;
+        // Navasan و سوالات قیمتی همیشه fresh fetch (کش دور زده می‌شه)
+        if (isWebSourceStale(matchedSource) || isPriceQ) {
           const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
-          if (fresh) { content = fresh.content; fetchedAt = fresh.fetched_at; }
+          if (fresh) {
+            content = fresh.content;
+            fetchedAt = fresh.fetched_at;
+            deterministicReply = fresh.deterministic_reply || null;
+          }
+        }
+        // جواب قطعی Navasan — بدون AI
+        if (deterministicReply) {
+          const reply = `${deterministicReply}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("web_source_deterministic:" + matchedSource.label, "deterministic");
+          setLoading(false);
+          return;
         }
         if (!content) {
-          // اگه کاربر خودش لغو کرده (نه که سایت واقعاً در دسترس نبود)، پیام «متوقف شد» رو دکمه‌ی
-          // توقف خودش همون لحظه‌ی کلیک اضافه کرده — اینجا فقط ساکت برمی‌گردیم، دوباره اضافه نمی‌کنیم
           if (stoppedByUserRef.current) { setLoading(false); return; }
           const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
@@ -2564,12 +2585,11 @@ export default function ITAssistant() {
           "هیچ عدد یا اطلاعاتی از حافظه‌ی خودت یا حدس اضافه نکن. اگه جواب دقیق سوال کاربر توی این متن نبود، صادقانه بگو توی " +
           "این صفحه پیدا نشد. جواب رو کوتاه و مستقیم بده: عدد + واحد، در یک یا دو خط.\n\n" +
           "قوانین قطعی واحد و انتخاب عدد:\n" +
-          "۱) طلا / طلای ۱۸ / گرم طلا → قیمت «طلای ۱۸ عیار (هر گرم)» به تومان. عدد کامل را بنویس (مثلاً ۲۱٬۴۰۰٬۰۰۰ تومان).\n" +
-          "۲) سکه / سکه امامی / تمام / طرح جدید → قیمت «سکه امامی» به تومان (معمولاً صدها میلیون تومان). هرگز قیمت دلار را به‌جای سکه نده.\n" +
+          "۱) طلا / طلای ۱۸ / گرم طلا → قیمت «طلای ۱۸ عیار (هر گرم)» به تومان. عدد کامل را بنویس.\n" +
+          "۲) سکه / سکه امامی / تمام / طرح جدید → قیمت «سکه امامی» به تومان (معمولاً صدها میلیون). هرگز قیمت دلار را به‌جای سکه نده.\n" +
           "۳) دلار / تتر → به تومان.\n" +
-          "۴) بیت‌کوین / bitcoin / btc و بقیه رمزارزها (به‌جز تتر) → قیمت به دلار. اگر هم تومان و هم دلار در متن بود، فقط دلار را به‌عنوان جواب اصلی بده.\n" +
-          "۵) واحد را دقیقاً از متن منبع بردار؛ اگر واحد ذکر نشده بود بگو مشخص نیست.\n" +
-          "۶) هرگز عدد ناقص یا بدون واحد نده. هرگز بر اساس حافظه عدد نساز.\n\n" +
+          "۴) بیت‌کوین و رمزارزها (به‌جز تتر) → به دلار. اگر هم تومان و هم دلار بود فقط دلار را بده.\n" +
+          "۵) هرگز عدد ناقص یا بدون واحد نده. هرگز از حافظه عدد نساز.\n\n" +
           `=== محتوای صفحه (${matchedSource.label} — ${matchedSource.url}) ===\n${content}`;
         const wsApiMsgs = newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
         try {
@@ -2590,9 +2610,7 @@ export default function ITAssistant() {
             return;
           }
         } catch (e) {
-          // اگه کاربر خودش لغو کرده، دکمه‌ی توقف خودش همون لحظه پیام رو اضافه کرده — دوباره اضافه نکن
           if (e.name === "AbortError") { setLoading(false); return; }
-          // وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
         }
         const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
         setMessages([...newMessages, { role: "assistant", content: reply }]);
@@ -2602,7 +2620,7 @@ export default function ITAssistant() {
         return;
       }
     } catch (e) {
-      // اگه خوندن web_sources خطا داد (مثلاً جدولش هنوز توی Supabase ساخته نشده)، بذار جریان عادی AI ادامه پیدا کنه
+      // اگه خوندن web_sources خطا داد، بذار جریان عادی AI ادامه پیدا کنه
     }
 
     try {
