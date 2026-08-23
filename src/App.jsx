@@ -112,14 +112,16 @@ const matchWebSource = (userText, sources) => {
   // وقتی چندتا منبع هم‌زمان با یه سوال مچ می‌شن (مثلاً هم Navasan هم tgju.org روی «دلار»)، اولویت
   // (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰) تعیین‌کننده‌ی اصلیه. در اولویت برابر، Navasan برای
   // سوالات قیمتی (طلا/دلار/سکه/رمزارز) ترجیح داده می‌شه چون API ساختاریافته و واحد مشخص داره.
-  const isPriceQuery = /طلا|دلار|سکه|تتر|یورو|پوند|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال|قیمت/i.test(userText);
+  // فقط برای ارز/رمزارز Navasan را ترجیح بده — طلا/سکه/نقره از اولویت پنل (معمولاً ۰)
+  const preferNavasan = /دلار|تتر|یورو|پوند|درهم|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز/i.test(userText)
+    && !/طلا|سکه|نقره|مثقال/i.test(userText);
   candidates.sort((a, b) => {
     const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
     if (pa !== pb) return pa - pb;
-    if (isPriceQuery) {
+    if (preferNavasan) {
       const aNav = (a.src.url || "").includes("navasan.tech") ? 1 : 0;
       const bNav = (b.src.url || "").includes("navasan.tech") ? 1 : 0;
-      if (aNav !== bNav) return bNav - aNav; // Navasan اول
+      if (aNav !== bNav) return bNav - aNav;
     }
     return b.score - a.score;
   });
@@ -2543,17 +2545,25 @@ export default function ITAssistant() {
     try {
       const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
       let matchedSource = matchWebSource(userText, webSources);
-      // برای سوالات قیمتی: اگر Navasan بین منابع هست، اجباراً همون رو بگیر (نه estjt/salari)
-      const isPriceQ = /طلا|دلار|سکه|تتر|یورو|پوند|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|قیمت/i.test(userText);
-      if (isPriceQ && webSources && webSources.length) {
+      // دلار/تتر/ارز/رمزارز → Navasan | طلا/سکه/نقره → اولویت ۰ (غیر Navasan)
+      const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
+      const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
+      if (isFxCryptoQ && !isMetalQ && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSource = navasan;
       }
+      if (isMetalQ && webSources?.length) {
+        const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
+        const metalMatch = matchWebSource(userText, nonNav.length ? nonNav : webSources);
+        if (metalMatch) matchedSource = metalMatch;
+        else if (nonNav.length) matchedSource = [...nonNav].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))[0];
+      }
+      const isPriceQ = isFxCryptoQ || isMetalQ;
       if (matchedSource) {
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
         let deterministicReply = null;
-        // Navasan و سوالات قیمتی همیشه fresh fetch (کش دور زده می‌شه)
+        // همیشه fresh برای قیمت
         if (isWebSourceStale(matchedSource) || isPriceQ) {
           const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
           if (fresh) {
