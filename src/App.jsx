@@ -89,7 +89,7 @@ const WEB_SOURCE_STOPWORDS = new Set([
 ]);
 
 const matchWebSource = (userText, sources) => {
-  if (!sources || sources.length === 0) return null;
+  if (!sources || sources.length === 0) return [];
   const userNorm = normalizeText(userText);
   const candidates = [];
   for (const src of sources) {
@@ -108,7 +108,7 @@ const matchWebSource = (userText, sources) => {
     for (const term of terms) { if (wordBoundaryIncludes(userNorm, term)) score++; }
     if (score > 0) candidates.push({ src, score });
   }
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
   // وقتی چندتا منبع هم‌زمان با یه سوال مچ می‌شن (مثلاً هم Navasan هم tgju.org روی «دلار»)، اولویت
   // (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰) تعیین‌کننده‌ی اصلیه. در اولویت برابر، Navasan برای
   // سوالات قیمتی (طلا/دلار/سکه/رمزارز) ترجیح داده می‌شه چون API ساختاریافته و واحد مشخص داره.
@@ -125,7 +125,10 @@ const matchWebSource = (userText, sources) => {
     }
     return b.score - a.score;
   });
-  return candidates[0].src;
+  // ۲۲/۲۳ اوت ۲۰۲۶: کل لیست مرتب‌شده برمی‌گرده (نه فقط بهترین یکی) — تا اگه بهترین منبع
+  // (اولویت ۰) فچ/جوابش شکست خورد یا AI گفت «پیدا نشد»، فراخوان بتونه سریع بره سراغ اولویت
+  // بعدی، به‌جای نشون‌دادن جواب ناقص یا خطا.
+  return candidates.map(c => c.src);
 };
 const isWebSourceStale = (src) => {
   // منابع Navasan همیشه بلادرنگ فچ می‌شن، نه از کش: چون بعضی درخواست‌ها فقط یه آیتم خاص (مثلاً
@@ -136,6 +139,12 @@ const isWebSourceStale = (src) => {
   if (!src.last_fetched_at) return true;
   return Date.now() - new Date(src.last_fetched_at).getTime() > WEB_SOURCE_CACHE_MS;
 };
+// ۲۳ اوت ۲۰۲۶: وقتی AI موفق جواب می‌ده ولی خودِ جواب می‌گه «پیدا نشد» (چون این منبع خاص اون
+// آیتم رو نداشت)، این باید مثل شکست حساب بشه و به منبع بعدی (اولویت پایین‌تر) سقوط کنه — نه
+// این‌که به‌عنوان جواب نهایی نشون داده بشه. عبارت‌ها دقیقاً همونایی‌ان که توی wsSystemPrompt به
+// AI گفتیم موقع نبودِ اطلاعات استفاده کنه.
+const looksLikeWebSourceNotFound = (replyText) =>
+  /پیدا نشد|مشخص نشد|موجود نیست|ذکر نشده|در دسترس نیست|توی این صفحه نیست|نداره|نیامده|نیومده/i.test(replyText || "");
 const formatFetchTime = (iso) => {
   if (!iso) return "نامشخص";
   try { return new Date(iso).toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" }); }
@@ -2542,24 +2551,34 @@ export default function ITAssistant() {
 
     // اگه سوال با کلیدواژه‌ی یکی از «منابع وب» (پنل مدیریت) مچ شد، محتوای واقعی همون سایت رو
     // بلادرنگ بگیر. برای قیمت‌های Navasan جواب قطعی (بدون AI) برمی‌گرده تا عدد اشتباه ساخته نشه.
+    // ۲۳ اوت ۲۰۲۶: اگه چندتا منبع مچ بشن، دیگه فقط بهترین (اولویت ۰) امتحان نمی‌شه — اگه فچش
+    // شکست بخوره، یا AI جواب نده، یا AI صادقانه بگه «توی این صفحه پیدا نشد» (یعنی این منبع خاص
+    // اون آیتم رو نداره)، سریع می‌ره سراغ منبع بعدی؛ فقط وقتی همه شکست خوردن خطا نشون داده می‌شه.
     try {
       const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
-      let matchedSource = matchWebSource(userText, webSources);
-      // دلار/تتر/ارز/رمزارز → Navasan | طلا/سکه/نقره → اولویت ۰ (غیر Navasan)
+      // دلار/تتر/ارز/رمزارز → Navasan اجباری | طلا/سکه/نقره → اولویت ۰ (غیر Navasan) اجباری
       const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
       const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
+      const isPriceQ = isFxCryptoQ || isMetalQ;
+      let matchedSources = matchWebSource(userText, webSources);
+      const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
       if (isFxCryptoQ && !isMetalQ && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
-        if (navasan) matchedSource = navasan;
+        if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
       }
       if (isMetalQ && webSources?.length) {
         const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
-        const metalMatch = matchWebSource(userText, nonNav.length ? nonNav : webSources);
-        if (metalMatch) matchedSource = metalMatch;
-        else if (nonNav.length) matchedSource = [...nonNav].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))[0];
+        const metalMatches = matchWebSource(userText, nonNav.length ? nonNav : webSources);
+        if (metalMatches.length > 0) {
+          matchedSources = [...metalMatches, ...matchedSources.filter(s => !metalMatches.some(m => byId(m, s)))];
+        } else if (nonNav.length) {
+          const fallbackMetal = [...nonNav].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))[0];
+          matchedSources = [fallbackMetal, ...matchedSources.filter(s => !byId(s, fallbackMetal))];
+        }
       }
-      const isPriceQ = isFxCryptoQ || isMetalQ;
-      if (matchedSource) {
+      for (let msIdx = 0; msIdx < matchedSources.length; msIdx++) {
+        const matchedSource = matchedSources[msIdx];
+        const isLastCandidate = msIdx === matchedSources.length - 1;
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
         let deterministicReply = null;
@@ -2583,6 +2602,7 @@ export default function ITAssistant() {
         }
         if (!content) {
           if (stoppedByUserRef.current) { setLoading(false); return; }
+          if (!isLastCandidate) continue; // برو سراغ منبع بعدی (اولویت پایین‌تر)
           const reply = `⚠️ الان نتونستم اطلاعات «${matchedSource.label}» رو از سایت بخونم. لطفاً چند لحظه دیگه دوباره امتحان کنید یا مستقیم به آدرس زیر مراجعه کنید:\n${matchedSource.url}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
@@ -2612,7 +2632,10 @@ export default function ITAssistant() {
           });
           const data = await res.json();
           if (res.ok && data.reply) {
-            const reply = `${cleanText(data.reply)}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+            const replyText = cleanText(data.reply);
+            // اگه AI صادقانه گفت پیدا نشد و منبع بعدی هم هست، اون رو امتحان کن به‌جای نشون‌دادن این جواب ناقص
+            if (looksLikeWebSourceNotFound(replyText) && !isLastCandidate) { continue; }
+            const reply = `${replyText}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
             setMessages([...newMessages, { role: "assistant", content: reply }]);
             if (userId) saveMessage(userId, "assistant", reply);
             logChat("web_source:" + matchedSource.label, "ai");
@@ -2621,7 +2644,9 @@ export default function ITAssistant() {
           }
         } catch (e) {
           if (e.name === "AbortError") { setLoading(false); return; }
+          // وگرنه (اگه منبع بعدی هست) برو سراغش؛ وگرنه پایین یه پیام خطای صریح نشون داده می‌شه
         }
+        if (!isLastCandidate) continue; // اولویت بعدی رو امتحان کن
         const reply = `⚠️ الان نتونستم بر اساس اطلاعات «${matchedSource.label}» جواب بدم. لطفاً دوباره امتحان کنید.`;
         setMessages([...newMessages, { role: "assistant", content: reply }]);
         if (userId) saveMessage(userId, "assistant", reply);
