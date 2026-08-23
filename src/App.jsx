@@ -349,7 +349,21 @@ const formatPersianDate = (dateInput) => {
   } catch { return ""; }
 };
 
-// === تاریخ و روز جاری — محاسبه دقیق شمسی + هفته چندم ماه (برای اسنادی مثل منوی غذا که هفته‌شمارشون شنبه‌محوره) ===
+// === تاریخ و روز جاری — محاسبه دقیق شمسی + هفته چرخشی ۴تایی شنبه‌محور (پیوسته بین ماه‌ها) ===
+// هفته‌ها از شنبه شروع می‌شن و سیکل ۴ هفته‌ای ماه‌به‌ماه ریست نمی‌شه
+// (باگ قبلی: در مرز ماه مثل ۳۱ مرداد→۱ شهریور، هفته از نو «اول» می‌شد و سیکل منوی غذا می‌پرید)
+const getContinuousWeekNumber = (date) => {
+  // شنبه شروع‌کننده همین هفته
+  const weekStart = new Date(date);
+  weekStart.setHours(12, 0, 0, 0);
+  const daysBackToSat = (weekStart.getDay() + 1) % 7; // Sun=1 … Sat=0
+  weekStart.setDate(weekStart.getDate() - daysBackToSat);
+  // مرجع ثابت: یک شنبه شناخته‌شده (۶ ژانویه ۲۰۲۴ = شنبه)
+  const epoch = new Date(Date.UTC(2024, 0, 6, 12, 0, 0));
+  const days = Math.round((weekStart.getTime() - epoch.getTime()) / 86400000);
+  return ((Math.floor(days / 7) % 4) + 4) % 4 + 1; // ۱..۴
+};
+
 const getPersianDateContext = () => {
   try {
     const now = new Date();
@@ -365,16 +379,11 @@ const getPersianDateContext = () => {
     const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
     const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
 
-    // هفته‌ی جاری ماه رو حساب کن (هفته‌ها از شنبه شروع می‌شن، هفته اول = هفته‌ای که روز ۱ ماه توشه)
+    const weekNumber = getContinuousWeekNumber(now);
+
+    // جدول کامل روز به روز همین ماه شمسی — هفته‌ها با سیکل پیوسته ۴تایی
     const firstOfMonth = new Date(now);
     firstOfMonth.setDate(now.getDate() - (pDay - 1));
-    const satOffset = (firstOfMonth.getDay() + 1) % 7; // فاصله‌ی روز اول ماه تا شنبه قبلش
-    let weekNumber = Math.ceil((pDay + satOffset) / 7);
-    weekNumber = ((weekNumber - 1) % 4) + 1; // اکثر جدول‌های شرکتی فقط ۴ هفته چرخشی تعریف می‌کنن
-
-    // جدول کامل روز به روز همین ماه شمسی — تا مدل مجبور نباشه خودش برای تاریخ‌های دیگه‌ی همین ماه محاسبه کنه
-    // (چون مدل‌های زبانی معمولاً در محاسبات تقویمی برای تاریخ‌های دلخواه اشتباه می‌کنن)
-    // هر روز رو توی خط جدا می‌ذاریم (نه یه لیست بلند تودرتو) چون مدل‌ها توی پیدا کردن آیتم وسط یه لیست فشرده اشتباه می‌کنن
     const cursor = new Date(firstOfMonth);
     const monthTableRows = [];
     let d = 1;
@@ -382,7 +391,7 @@ const getPersianDateContext = () => {
       const partsD = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric" }).formatToParts(cursor);
       const dayNum = parseInt(toEnDigits(partsD.find(p => p.type === "day").value), 10);
       if (dayNum !== d) break; // یعنی ماه عوض شده
-      const wn = ((Math.ceil((d + satOffset) / 7) - 1) % 4) + 1;
+      const wn = getContinuousWeekNumber(cursor);
       const marker = d === pDay ? "  ← امروز" : "";
       monthTableRows.push(`روز ${d} ${monthNamesFa[pMonth - 1]} = ${weekdayNamesFa[cursor.getDay()]}، هفته ${weekNamesFa[wn - 1]}${marker}`);
       cursor.setDate(cursor.getDate() + 1);
@@ -390,7 +399,7 @@ const getPersianDateContext = () => {
     }
     const monthTableText = monthTableRows.join("\n");
 
-    return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» ماه محسوب میشه.
+    return `امروز ${todayWeekdayFa}، ${pDay} ${monthNamesFa[pMonth - 1]} ${pYear} است (روز ${pDay} ماه). بر اساس تقویم هفتگی شرکت که هفته‌ها از شنبه شروع می‌شن و سیکل ۴ هفته‌ای بین ماه‌ها پیوسته است، امروز جزو «هفته ${weekNamesFa[weekNumber - 1]}» محسوب میشه.
 
 جدول مرجع روزهای ${monthNamesFa[pMonth - 1]} ${pYear} — یک خط برای هر روز:
 ${monthTableText}
@@ -722,12 +731,9 @@ const computeMenuTargetInfo = (userText) => {
     }
   }
 
-  // از targetDate، سال/ماه/روز شمسی و هفته‌ی ماه رو بر مبنای ماه خود همون تاریخ (نه لزوماً ماه امروز) حساب کن
+  // از targetDate، سال/ماه/روز شمسی + هفته چرخشی پیوسته (شنبه‌محور، ریست‌نشونده در مرز ماه)
   const tp = persianPartsOf(targetDate);
-  const firstOfMonth = new Date(targetDate);
-  firstOfMonth.setDate(targetDate.getDate() - (tp.d - 1));
-  const satOffset = (firstOfMonth.getDay() + 1) % 7;
-  const weekNumber = ((Math.ceil((tp.d + satOffset) / 7) - 1) % 4) + 1;
+  const weekNumber = getContinuousWeekNumber(targetDate);
 
   return {
     targetDay: tp.d, isExplicit, weekdayFa: weekdayNamesFa[targetDate.getDay()],
