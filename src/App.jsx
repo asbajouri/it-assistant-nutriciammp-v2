@@ -145,6 +145,14 @@ const isWebSourceStale = (src) => {
 // AI گفتیم موقع نبودِ اطلاعات استفاده کنه.
 const looksLikeWebSourceNotFound = (replyText) =>
   /پیدا نشد|مشخص نشد|موجود نیست|ذکر نشده|در دسترس نیست|توی این صفحه نیست|نداره|نیامده|نیومده/i.test(replyText || "");
+// عدد طلای ۱۸ عیار گرمی در بازار ایران الان چند میلیون تومان است؛ اگر AI عددی زیر ۱ میلیون داد، اشتباه است
+const looksLikeSuspiciousGoldPrice = (replyText, userQ) => {
+  if (!/طلا|عیار|گرم/i.test(userQ || "") || /سکه|نقره/i.test(userQ || "")) return false;
+  const nums = (replyText || "").replace(/,/g, "").match(/\d{4,}/g) || [];
+  if (nums.length === 0) return false;
+  const main = Math.max(...nums.map(n => parseInt(n, 10)));
+  return main > 0 && main < 1_000_000; // کمتر از ۱ میلیون برای گرم ۱۸ عیار غیرواقعی است
+};
 const formatFetchTime = (iso) => {
   if (!iso) return "نامشخص";
   try { return new Date(iso).toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" }); }
@@ -2556,17 +2564,21 @@ export default function ITAssistant() {
     // اون آیتم رو نداره)، سریع می‌ره سراغ منبع بعدی؛ فقط وقتی همه شکست خوردن خطا نشون داده می‌شه.
     try {
       const webSources = await sbFetch("web_sources?order=priority.asc,id.asc").catch(() => []);
-      // دلار/تتر/ارز/رمزارز → Navasan اجباری | طلا/سکه/نقره → اولویت ۰ (غیر Navasan) اجباری
+      // دلار/تتر/ارز/رمزارز → Navasan اجباری
+      // طلای ۱۸ / عیار / گرم → Navasan اول (deterministic روی 18ayar درست است؛ estjt با AI عدد اشتباه می‌داد مثل 881617)
+      // سکه / نقره → اولویت ۰ غیر-Navasan اول، Navasan fallback
       const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
       const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
+      const isGold18Q = /طلا|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
+      const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
       const isPriceQ = isFxCryptoQ || isMetalQ;
       let matchedSources = matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
-      if (isFxCryptoQ && !isMetalQ && webSources?.length) {
+      if (((isFxCryptoQ && !isMetalQ) || isGold18Q) && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
       }
-      if (isMetalQ && webSources?.length) {
+      if (isCoinOrSilverQ && webSources?.length) {
         const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
         const metalMatches = matchWebSource(userText, nonNav.length ? nonNav : webSources);
         if (metalMatches.length > 0) {
@@ -2633,8 +2645,8 @@ export default function ITAssistant() {
           const data = await res.json();
           if (res.ok && data.reply) {
             const replyText = cleanText(data.reply);
-            // اگه AI صادقانه گفت پیدا نشد و منبع بعدی هم هست، اون رو امتحان کن به‌جای نشون‌دادن این جواب ناقص
-            if (looksLikeWebSourceNotFound(replyText) && !isLastCandidate) { continue; }
+            // اگه AI گفت پیدا نشد، یا برای طلا عدد غیرواقعی (< ۱ میلیون) داد، منبع بعدی را امتحان کن
+            if ((looksLikeWebSourceNotFound(replyText) || looksLikeSuspiciousGoldPrice(replyText, userText)) && !isLastCandidate) { continue; }
             const reply = `${replyText}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
             setMessages([...newMessages, { role: "assistant", content: reply }]);
             if (userId) saveMessage(userId, "assistant", reply);
