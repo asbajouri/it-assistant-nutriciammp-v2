@@ -2566,20 +2566,18 @@ export default function ITAssistant() {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
         const term = resolveFollowupSearchTerm(extractPhoneSearchTerm(userText), messages);
         const matches = searchPhoneDirectory(docs, term);
-        const emailMatches = searchEmployeeDirectory(docs, term);
-        const extraMatches = searchColleagueExtraInfo(docs, term);
-        if (matches.length > 0 || emailMatches.length > 0) {
-          const reply = (matches.length && emailMatches.length)
-            ? buildColleagueProfileReply(term, matches, emailMatches, extraMatches)
-            : matches.length
-              ? `📞 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n")
-              : `📧 نتایج جستجو برای «${term}»:\n\n` + emailMatches.map(m => "- " + m).join("\n");
+        if (matches.length > 0) {
+          const reply = `📞 نتایج جستجو برای «${term}»:
+
+` + matches.map(m => "- " + m).join("
+");
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
           logChat("phone_lookup", "deterministic");
           setLoading(false);
           return;
         }
+        // اگه هیچ match‌ای نبود، بذار جریان عادی AI ادامه پیدا کنه
       } catch (e) {
         // بذار جریان عادی AI ادامه پیدا کنه
       }
