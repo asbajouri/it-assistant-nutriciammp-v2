@@ -590,8 +590,18 @@ const searchPhoneDirectory = (docs, term) => {
       }
     }
   }
-  return [...new Set(results)];
+  const uniq = [...new Set(results)];
+  // حذف تکراری‌های تقریباً یکسان (همان داخلی)
+  const byExt = new Map();
+  for (const line of uniq) {
+    const extM = line.match(/داخلی\s*:\s*(\d{3,5})/i) || line.match(/\b(\d{3,5})\b/);
+    const ext = extM ? extM[1] : line;
+    const prev = byExt.get(ext);
+    if (!prev || line.length < prev.length) byExt.set(ext, line);
+  }
+  return [...byExt.values()];
 };
+
 
 // === جستجوی قطعی ایمیل/مشخصات کارمند (بدون AI) — ۱۳ اوت ۲۰۲۶ ===
 // مشکل: کاربر معمولاً اسم رو فارسی تایپ می‌کنه («امید گوهری») ولی رکورد اکسل (خروجی AD) لاتینه
@@ -629,10 +639,27 @@ const wordsLikelyMatch = (queryWord, dataWord) => {
   const dLower = dataWord.toLowerCase();
   if (qLower.length >= 3 && dLower.length >= 3 && dLower.includes(qLower)) return true;
   if (qLower.length >= 3 && dLower.length >= 4 && qLower.includes(dLower)) return true;
-  const qSkeleton = consonantSkeleton(transliterateFaToLatin(queryWord));
+  const qLatin = transliterateFaToLatin(queryWord).toLowerCase();
+  const dLatin = dataWord.toLowerCase().replace(/[^a-z]/g, "");
+  // تطبیق نزدیک لاتینی کامل (جلوگیری از احمدرضا≈حمیدرضا فقط با اسکلت)
+  if (qLatin.length >= 5 && dLatin.length >= 5) {
+    if (qLatin === dLatin) return true;
+    // یکی پیشوند/شبیه خیلی نزدیک دیگری باشد
+    if (qLatin.length >= 6 && dLatin.length >= 6) {
+      const a = qLatin.slice(0, 6);
+      const b = dLatin.slice(0, 6);
+      if (a === b) return true;
+    }
+  }
+  const qSkeleton = consonantSkeleton(qLatin);
   const dSkeleton = consonantSkeleton(dataWord);
-  if (qSkeleton.length < 2 || dSkeleton.length < 2) return false;
-  return qSkeleton === dSkeleton;
+  if (qSkeleton.length < 3 || dSkeleton.length < 3) return false;
+  // برای اسم‌های بلند، اسکلت باید دقیقاً یکی باشد و اختلاف طول زیاد نباشد
+  if (qSkeleton === dSkeleton) {
+    if (Math.abs(qLatin.length - dLatin.length) > 3 && qLatin.length >= 6) return false;
+    return true;
+  }
+  return false;
 };
 
 const isEmployeeLookupQuery = (text) =>
@@ -674,36 +701,45 @@ const isEmployeeDirectoryDoc = (doc) => {
 
 const emailLineMatchesPerson = (line, words) => {
   if (!line.includes("@")) return false;
-  // نام کامل
-  if (lineMatchesPersonName(line, words)) return true;
-  const lineTokens = line.match(/[A-Za-z]+/g) || [];
-  if (lineTokens.length && words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) return true;
-  // بخش قبل از @ مثل amirreza.molavi
+  const significant = (words || []).map((w) => w.trim()).filter((w) => w.length >= 2);
+  if (!significant.length) return false;
+
+  const lineTokens = line.match(/[A-Za-z\u0600-\u06FF]+/g) || [];
   const localM = line.match(/([a-zA-Z0-9._-]+)@/);
-  if (localM) {
-    const localParts = localM[1].split(/[._-]+/).filter((p) => p.length >= 2);
-    if (localParts.length && words.every((qw) => localParts.some((p) => wordsLikelyMatch(qw, p)))) return true;
-    // حداقل نام‌خانوادگی (بلندترین کلمه) با local-part
-    const sorted = [...words].sort((a, b) => b.length - a.length);
-    const last = sorted[0];
-    if (last && localParts.some((p) => wordsLikelyMatch(last, p))) {
-      // اگر بیش از یک کلمه داریم، یکی دیگر هم باید در خط باشد
-      if (words.length === 1) return true;
-      const others = words.filter((w) => w !== last);
-      if (others.some((ow) => lineTokens.some((tok) => wordsLikelyMatch(ow, tok)) || localParts.some((p) => wordsLikelyMatch(ow, p)) || normalizeText(line).includes(normalizeText(ow)))) {
-        return true;
+  const localParts = localM
+    ? localM[1].split(/[._-]+/).filter((p) => p.length >= 2)
+    : [];
+  const haystackTokens = [...lineTokens, ...localParts];
+
+  const wordHitsHay = (qw) => {
+    const qn = normalizeText(qw);
+    if (qn.length >= 2 && normalizeText(line).includes(qn)) return true;
+    return haystackTokens.some((tok) => wordsLikelyMatch(qw, tok));
+  };
+
+  // چندکلمه‌ای (نام + نام‌خانوادگی): همه باید بخورند — بدون fallback تک‌کلمه
+  if (significant.length >= 2) {
+    return significant.every(wordHitsHay);
+  }
+
+  // تک‌کلمه: فقط اگر توکن/local نسبتاً محکم مچ شود (نه اسکلت خیلی کوتاه)
+  const qw = significant[0];
+  const qSk = consonantSkeleton(transliterateFaToLatin(qw));
+  if (qSk.length < 3 && qw.length < 4) return false;
+  // تطبیق مستقیم در خط
+  if (normalizeText(line).includes(normalizeText(qw))) return true;
+  // local-part یا توکن با اسکلت برابر و طول کافی
+  return haystackTokens.some((tok) => {
+    if (wordsLikelyMatch(qw, tok)) {
+      const dSk = consonantSkeleton(tok);
+      // جلوگیری از احمدرضا ↔ حمیدرضا وقتی فقط اسکلت کوتاه مشترک است
+      if (qSk.length >= 4 && dSk.length >= 4) {
+        return qSk === dSk || normalizeText(tok).includes(normalizeText(transliterateFaToLatin(qw)));
       }
-      // فقط نام‌خانوادگی در ایمیل — برای لیست داخلی که AD با املای نزدیک دارد
-      if (localParts.some((p) => wordsLikelyMatch(last, p) && p.length >= 4)) return true;
+      return qSk === dSk && qSk.length >= 3;
     }
-  }
-  // فقط نام‌خانوادگی روی کل خط (وقتی نام کامل مچ نشد)
-  if (words.length >= 1) {
-    const sorted = [...words].sort((a, b) => b.length - a.length);
-    const last = sorted[0];
-    if (last && last.length >= 3 && lineMatchesPersonName(line, [last])) return true;
-  }
-  return false;
+    return false;
+  });
 };
 
 const searchEmployeeDirectory = (docs, term) => {
