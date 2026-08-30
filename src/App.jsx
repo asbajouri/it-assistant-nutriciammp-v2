@@ -2567,10 +2567,7 @@ export default function ITAssistant() {
         const term = resolveFollowupSearchTerm(extractPhoneSearchTerm(userText), messages);
         const matches = searchPhoneDirectory(docs, term);
         if (matches.length > 0) {
-          const reply = `📞 نتایج جستجو برای «${term}»:
-
-` + matches.map(m => "- " + m).join("
-");
+          const reply = "📞 نتایج جستجو برای «" + term + "»:\n\n" + matches.map(m => "- " + m).join("\n");
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
           logChat("phone_lookup", "deterministic");
@@ -2624,7 +2621,6 @@ export default function ITAssistant() {
               const bits = namePart.replace(/[—"']/g, " ").split(/\s*-\s*|\s+/).map((x) => x.trim()).filter((x) => x.length >= 2 && !/^(it|is)$/i.test(x));
               if (bits.length) {
                 searchEmployeeDirectory(docs, bits.join(" ")).forEach((r) => fromPhone.add(r));
-                // ترتیب برعکس نام/نام‌خانوادگی
                 if (bits.length >= 2) {
                   searchEmployeeDirectory(docs, [...bits].reverse().join(" ")).forEach((r) => fromPhone.add(r));
                 }
