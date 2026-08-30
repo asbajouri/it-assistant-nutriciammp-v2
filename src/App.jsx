@@ -579,21 +579,13 @@ const searchPhoneDirectory = (docs, term) => {
   const results = [];
   for (const doc of docs || []) {
     if (!isPhoneDirectoryDoc(doc)) continue;
-    const cityHint = /مشهد/i.test((doc.title || "") + (doc.content || "").slice(0, 400))
-      ? "مشهد"
-      : /تهران/i.test((doc.title || "") + (doc.content || "").slice(0, 400))
-        ? "تهران"
-        : "";
     for (const line of (doc.content || "").split("\n")) {
       if (!/\d{3,5}/.test(line)) continue;
-      // فقط خطوط شبیه رکورد داخلی (نه هر عددی در سند متفرقه)
       if (!/داخلی|ext|tel|phone|—|-/i.test(line) && !/\(لیست تلفن/.test(doc.content || "")) {
-        // اگر مارکر لیست تلفن دارد، همهٔ خطوط عددی را بپذیر
         if (!/\(لیست تلفن\/داخلی\)/.test(doc.content || "")) continue;
       }
       if (lineMatchesPersonName(line, termWords)) {
-        const tagged = cityHint && !line.includes(cityHint) ? `${line.trim()} — [${cityHint}]` : line.trim();
-        results.push(tagged);
+        results.push(line.trim());
       }
     }
   }
@@ -679,22 +671,52 @@ const isEmployeeDirectoryDoc = (doc) => {
   return false;
 };
 
+const emailLineMatchesPerson = (line, words) => {
+  if (!line.includes("@")) return false;
+  // نام کامل
+  if (lineMatchesPersonName(line, words)) return true;
+  const lineTokens = line.match(/[A-Za-z]+/g) || [];
+  if (lineTokens.length && words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) return true;
+  // بخش قبل از @ مثل amirreza.molavi
+  const localM = line.match(/([a-zA-Z0-9._-]+)@/);
+  if (localM) {
+    const localParts = localM[1].split(/[._-]+/).filter((p) => p.length >= 2);
+    if (localParts.length && words.every((qw) => localParts.some((p) => wordsLikelyMatch(qw, p)))) return true;
+    // حداقل نام‌خانوادگی (بلندترین کلمه) با local-part
+    const sorted = [...words].sort((a, b) => b.length - a.length);
+    const last = sorted[0];
+    if (last && localParts.some((p) => wordsLikelyMatch(last, p))) {
+      // اگر بیش از یک کلمه داریم، یکی دیگر هم باید در خط باشد
+      if (words.length === 1) return true;
+      const others = words.filter((w) => w !== last);
+      if (others.some((ow) => lineTokens.some((tok) => wordsLikelyMatch(ow, tok)) || localParts.some((p) => wordsLikelyMatch(ow, p)) || normalizeText(line).includes(normalizeText(ow)))) {
+        return true;
+      }
+      // فقط نام‌خانوادگی در ایمیل — برای لیست داخلی که AD با املای نزدیک دارد
+      if (localParts.some((p) => wordsLikelyMatch(last, p) && p.length >= 4)) return true;
+    }
+  }
+  // فقط نام‌خانوادگی روی کل خط (وقتی نام کامل مچ نشد)
+  if (words.length >= 1) {
+    const sorted = [...words].sort((a, b) => b.length - a.length);
+    const last = sorted[0];
+    if (last && last.length >= 3 && lineMatchesPersonName(line, [last])) return true;
+  }
+  return false;
+};
+
 const searchEmployeeDirectory = (docs, term) => {
   if (!term || term.trim().length < 2) return [];
-  const words = term.split(/\s+/).map((w) => w.trim()).filter((w) => w.length >= 2);
+  // «مولوی - امیررضا» از لیست تلفن → کلمات تمیز
+  const cleaned = term.replace(/[—–]/g, " ").replace(/\s+-\s+/g, " ");
+  const words = cleaned.split(/\s+/).map((w) => w.trim()).filter((w) => w.length >= 2 && !/^(it|is|of)$/i.test(w));
   if (!words.length) return [];
   const results = [];
   for (const doc of docs || []) {
     if (!isEmployeeDirectoryDoc(doc)) continue;
     for (const line of (doc.content || "").split("\n")) {
       if (!line.includes("@")) continue;
-      // تطبیق فارسی مستقیم + لاتین اسکلت
-      if (lineMatchesPersonName(line, words)) {
-        results.push(line.trim());
-        continue;
-      }
-      const lineTokens = line.match(/[A-Za-z]+/g) || [];
-      if (lineTokens.length && words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) {
+      if (emailLineMatchesPerson(line, words)) {
         results.push(line.trim());
       }
     }
@@ -2594,7 +2616,23 @@ export default function ITAssistant() {
         const term = resolveFollowupSearchTerm(extractGenericNameTerm(userText), messages);
         if (term && term.trim().length >= 2) {
           const phoneMatches = searchPhoneDirectory(docs, term);
-          const emailMatches = searchEmployeeDirectory(docs, term);
+          let emailMatches = searchEmployeeDirectory(docs, term);
+          // اگر ایمیل با همان عبارت پیدا نشد، از روی خط داخلی (مولوی - امیررضا) دوباره جستجو کن
+          if (!emailMatches.length && phoneMatches.length) {
+            const fromPhone = new Set();
+            for (const pl of phoneMatches) {
+              const namePart = pl.split(/داخلی\s*:/i)[0] || pl;
+              const bits = namePart.replace(/[—"']/g, " ").split(/\s*-\s*|\s+/).map((x) => x.trim()).filter((x) => x.length >= 2 && !/^(it|is)$/i.test(x));
+              if (bits.length) {
+                searchEmployeeDirectory(docs, bits.join(" ")).forEach((r) => fromPhone.add(r));
+                // ترتیب برعکس نام/نام‌خانوادگی
+                if (bits.length >= 2) {
+                  searchEmployeeDirectory(docs, [...bits].reverse().join(" ")).forEach((r) => fromPhone.add(r));
+                }
+              }
+            }
+            emailMatches = [...fromPhone];
+          }
           const extraMatches = searchColleagueExtraInfo(docs, term);
           if (phoneMatches.length || emailMatches.length || extraMatches.length) {
             const reply = buildColleagueProfileReply(term, phoneMatches, emailMatches, extraMatches);
