@@ -667,6 +667,62 @@ const searchEmployeeDirectory = (docs, term) => {
   return [...new Set(results)];
 };
 
+// ۳۰ اوت ۲۰۲۶: وقتی فقط اسم همکار تایپ می‌شود (بدون «داخلی»/«ایمیل»)
+const isLikelyPersonNameQuery = (text) => {
+  const t = (text || "").trim();
+  if (!t || t.length < 2 || t.length > 60) return false;
+  if (isPhoneQuery(t) || isEmployeeLookupQuery(t)) return false;
+  if (isMenuQuery(t) || isWeatherQuery(t) || isActivationQuery(t)) return false;
+  if (isNewsQuery && typeof isNewsQuery === "function" && isNewsQuery(t)) return false;
+  if (/دلار|تتر|یورو|پوند|درهم|لیر|حواله|سکه|طلا|نقره|بیت\s*کوین|قیمت|نرخ|اخبار|آب\s*هوا|منو|غذا|کانتین/i.test(t)) return false;
+  if (/\d/.test(t)) return false;
+  const words = t.replace(/[؟?!.,،]/g, " ").split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 4) return false;
+  // فقط حروف فارسی/لاتین
+  if (!words.every((w) => /^[\u0600-\u06FFa-zA-Z\u200c]+$/.test(w))) return false;
+  return true;
+};
+
+const searchColleagueExtraInfo = (docs, term) => {
+  if (!term || term.length < 2) return [];
+  const termWords = normalizeText(term).split(/\s+/).filter((w) => w.length >= 2);
+  if (!termWords.length) return [];
+  const results = [];
+  for (const doc of docs || []) {
+    const content = doc.content || "";
+    // از جدول‌های تلفن/ایمیل رد شو — جداگانه اضافه می‌شوند
+    if (/\(لیست تلفن\/داخلی\)|\(جدول با هدر\)/.test(content)) continue;
+    for (const line of content.split("\n")) {
+      const ln = line.trim();
+      if (ln.length < 8 || ln.length > 300) continue;
+      const lineNorm = normalizeText(ln);
+      if (termWords.every((w) => lineNorm.includes(w))) {
+        results.push(ln);
+      }
+    }
+  }
+  return [...new Set(results)].slice(0, 8);
+};
+
+const buildColleagueProfileReply = (term, phoneMatches, emailMatches, extraMatches) => {
+  const parts = [`👤 اطلاعات «${term}» از اسناد:`];
+  if (phoneMatches.length) {
+    parts.push("", "📞 داخلی / تلفن:");
+    phoneMatches.forEach((m) => parts.push("- " + m));
+  }
+  if (emailMatches.length) {
+    parts.push("", "📧 ایمیل / مشخصات سازمانی:");
+    emailMatches.forEach((m) => parts.push("- " + m));
+  }
+  if (extraMatches.length) {
+    parts.push("", "📄 سایر موارد در اسناد:");
+    extraMatches.forEach((m) => parts.push("- " + m));
+  }
+  return parts.join("\n");
+};
+
+
+
 // یه خط CSV رو با رعایت quoteها پارس می‌کنه (خروجی SheetJS ممکنه فیلدهای دارای کاما رو داخل " " بذاره)
 const parseCsvLine = (line) => {
   const result = [];
@@ -2483,6 +2539,30 @@ export default function ITAssistant() {
       }
     }
 
+
+    // ۳۰ اوت ۲۰۲۶: فقط اسم همکار → داخلی + ایمیل + هر اطلاعات دیگر در اسناد
+    if (isLikelyPersonNameQuery(userText)) {
+      try {
+        const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
+        const term = resolveFollowupSearchTerm(extractGenericNameTerm(userText), messages);
+        if (term && term.trim().length >= 2) {
+          const phoneMatches = searchPhoneDirectory(docs, term);
+          const emailMatches = searchEmployeeDirectory(docs, term);
+          const extraMatches = searchColleagueExtraInfo(docs, term);
+          if (phoneMatches.length || emailMatches.length || extraMatches.length) {
+            const reply = buildColleagueProfileReply(term, phoneMatches, emailMatches, extraMatches);
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("colleague_profile", "deterministic");
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        // ادامه جریان عادی
+      }
+    }
+
     // اگه سوال درباره منوی غذا بود، مستقیم و بدون AI از روی سند منو محاسبه کن (چون مدل‌ها در تطبیق تاریخ قابل‌اعتماد نیستن)
     if (isMenuQuery(userText)) {
       try {
@@ -2567,7 +2647,7 @@ export default function ITAssistant() {
       // دلار/تتر/ارز/رمزارز → Navasan اجباری
       // طلای ۱۸ / عیار / گرم → Navasan اول (deterministic روی 18ayar درست است؛ estjt با AI عدد اشتباه می‌داد مثل 881617)
       // سکه / نقره → اولویت ۰ غیر-Navasan اول، Navasan fallback
-      const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
+      const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|حواله|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
       const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
       const isGold18Q = /طلا|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
       const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
