@@ -551,31 +551,53 @@ const stripStopwordsWholeWord = (text, stopwords) => {
 
 const extractPhoneSearchTerm = (text) => stripStopwordsWholeWord(text, PHONE_QUERY_STOPWORDS);
 
+const isPhoneDirectoryDoc = (doc) => {
+  const content = doc.content || "";
+  const title = ((doc.title || "") + " " + (doc.category || ""));
+  // همهٔ لیست‌های داخلی (تهران / مشهد / ...) — مارکر شیت یا عنوان سند
+  if (/\(لیست تلفن\/داخلی\)/.test(content)) return true;
+  if (/تلفن|داخلی|phone|directory|تهران|مشهد/i.test(title) && /\d{3,5}/.test(content)) return true;
+  return false;
+};
+
+const lineMatchesPersonName = (line, termWords) => {
+  const lineNorm = normalizeText(line);
+  // ۱) تطبیق مستقیم فارسی/نرمال‌شده
+  if (termWords.every((w) => lineNorm.includes(normalizeText(w)))) return true;
+  // ۲) تطبیق اسکلت لاتین↔فارسی (برای AD و لیست‌های مخلوط)
+  const tokens = line.match(/[A-Za-z\u0600-\u06FF]+/g) || [];
+  if (!tokens.length) return false;
+  return termWords.every((qw) =>
+    tokens.some((tok) => wordsLikelyMatch(qw, tok) || normalizeText(tok).includes(normalizeText(qw)))
+  );
+};
+
 const searchPhoneDirectory = (docs, term) => {
   if (!term || term.length < 2) return [];
-  // چون رکوردها به شکل «نام‌خانوادگی - نام» ذخیره شدن ولی کاربر معمولاً «نام نام‌خانوادگی» تایپ می‌کنه،
-  // باید هر کلمه‌ی جستجو رو جدا چک کنیم (نه کل عبارت رو یکجا) وگرنه با ترتیب برعکس چیزی پیدا نمی‌شه.
-  const termWords = normalizeText(term).split(/\s+/).filter(w => w.length >= 2);
+  const termWords = normalizeText(term).split(/\s+/).filter((w) => w.length >= 2);
   if (termWords.length === 0) return [];
   const results = [];
   for (const doc of docs || []) {
-    // ⛔️ ۱۸ اوت ۲۰۲۶: قبلاً هر سندی (حتی یه سند آموزشی کاملاً نامرتبط) که یه خط با عدد ۳-۵ رقمی
-    // داشت بررسی می‌شد — یه سند آموزشی که تصادفاً جایی به شماره‌ی داخلی یه نفر اشاره کرده بود
-    // (مثلاً «شماره داخلی الهه رضایی: ۱۳۰۸» توی یه گزارش ایمنی)، کل محتوای بی‌ربطش وارد نتیجه‌ی
-    // جستجوی تلفن می‌شد. دقیقاً مثل searchEmployeeDirectory (که فقط سندهای «جدول با هدر» رو
-    // می‌بینه)، الان فقط سندهایی که واقعاً موقع آپلود به‌عنوان دایرکتوری تلفن تشخیص داده شدن
-    // (مارکر «(لیست تلفن/داخلی)» از parseDirectoryLikeSheet) در نظر گرفته می‌شن.
-    if (!/\(لیست تلفن\/داخلی\)/.test(doc.content || "")) continue;
-    const lines = (doc.content || "").split("\n");
-    for (const line of lines) {
-      if (!/\d{3,5}/.test(line)) continue; // فقط خط‌هایی که به رکورد تلفن شبیهن (عدد داخلی توشونه)
-      const lineNorm = normalizeText(line);
-      if (termWords.every(w => lineNorm.includes(w))) {
-        results.push(line.trim());
+    if (!isPhoneDirectoryDoc(doc)) continue;
+    const cityHint = /مشهد/i.test((doc.title || "") + (doc.content || "").slice(0, 400))
+      ? "مشهد"
+      : /تهران/i.test((doc.title || "") + (doc.content || "").slice(0, 400))
+        ? "تهران"
+        : "";
+    for (const line of (doc.content || "").split("\n")) {
+      if (!/\d{3,5}/.test(line)) continue;
+      // فقط خطوط شبیه رکورد داخلی (نه هر عددی در سند متفرقه)
+      if (!/داخلی|ext|tel|phone|—|-/i.test(line) && !/\(لیست تلفن/.test(doc.content || "")) {
+        // اگر مارکر لیست تلفن دارد، همهٔ خطوط عددی را بپذیر
+        if (!/\(لیست تلفن\/داخلی\)/.test(doc.content || "")) continue;
+      }
+      if (lineMatchesPersonName(line, termWords)) {
+        const tagged = cityHint && !line.includes(cityHint) ? `${line.trim()} — [${cityHint}]` : line.trim();
+        results.push(tagged);
       }
     }
   }
-  return [...new Set(results)]; // حذف رکورد تکراری (اگه چند سند مشترک باشن)
+  return [...new Set(results)];
 };
 
 // === جستجوی قطعی ایمیل/مشخصات کارمند (بدون AI) — ۱۳ اوت ۲۰۲۶ ===
@@ -647,19 +669,32 @@ const resolveFollowupSearchTerm = (currentTerm, recentMessages) => {
   return currentTerm;
 };
 
+const isEmployeeDirectoryDoc = (doc) => {
+  const content = doc.content || "";
+  const title = ((doc.title || "") + " " + (doc.category || ""));
+  if (/\(جدول با هدر\)/.test(content)) return true;
+  // فایل‌های AD/HR که مارکر نگرفته‌اند ولی ایمیل سازمانی دارند
+  if (/@nutricia|@.*\.com/i.test(content) && /email|ایمیل|display\s*name|کارمند|پرسنل|AD|active\s*directory/i.test(title + content.slice(0, 500))) return true;
+  if ((content.match(/@[a-z0-9.-]+\.[a-z]{2,}/gi) || []).length >= 5) return true;
+  return false;
+};
+
 const searchEmployeeDirectory = (docs, term) => {
   if (!term || term.trim().length < 2) return [];
   const words = term.split(/\s+/).map((w) => w.trim()).filter((w) => w.length >= 2);
   if (!words.length) return [];
   const results = [];
   for (const doc of docs || []) {
-    if (!/\(جدول با هدر\)/.test(doc.content || "")) continue;
-    const lines = (doc.content || "").split("\n");
-    for (const line of lines) {
-      if (!line.includes("@")) continue; // فقط ردیف‌هایی که واقعاً ایمیل دارن
+    if (!isEmployeeDirectoryDoc(doc)) continue;
+    for (const line of (doc.content || "").split("\n")) {
+      if (!line.includes("@")) continue;
+      // تطبیق فارسی مستقیم + لاتین اسکلت
+      if (lineMatchesPersonName(line, words)) {
+        results.push(line.trim());
+        continue;
+      }
       const lineTokens = line.match(/[A-Za-z]+/g) || [];
-      if (!lineTokens.length) continue;
-      if (words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) {
+      if (lineTokens.length && words.every((qw) => lineTokens.some((tok) => wordsLikelyMatch(qw, tok)))) {
         results.push(line.trim());
       }
     }
@@ -690,18 +725,22 @@ const searchColleagueExtraInfo = (docs, term) => {
   const results = [];
   for (const doc of docs || []) {
     const content = doc.content || "";
-    // از جدول‌های تلفن/ایمیل رد شو — جداگانه اضافه می‌شوند
-    if (/\(لیست تلفن\/داخلی\)|\(جدول با هدر\)/.test(content)) continue;
+    // خطوط ایمیل/داخلی خالص را رد کن (جداگانه در پروفایل می‌آیند) ولی بقیهٔ سندهای نقش/ایمنی را بخوان
     for (const line of content.split("\n")) {
       const ln = line.trim();
-      if (ln.length < 8 || ln.length > 300) continue;
-      const lineNorm = normalizeText(ln);
-      if (termWords.every((w) => lineNorm.includes(w))) {
+      if (ln.length < 12 || ln.length > 400) continue;
+      if (/^===/.test(ln)) continue;
+      // رد کردن خطوط خام فقط‌داخلی یا فقط‌ایمیل تکراری
+      if (/داخلی\s*:\s*\d{3,5}\s*$/i.test(ln) && ln.length < 80) continue;
+      if (lineMatchesPersonName(ln, termWords) || termWords.every((w) => normalizeText(ln).includes(w))) {
+        // اگر دقیقاً همان خط تلفن/ایمیل است، در extra نگذار
+        if (/@/.test(ln) && isEmployeeDirectoryDoc(doc)) continue;
+        if (/داخلی\s*:/i.test(ln) && isPhoneDirectoryDoc(doc)) continue;
         results.push(ln);
       }
     }
   }
-  return [...new Set(results)].slice(0, 8);
+  return [...new Set(results)].slice(0, 10);
 };
 
 const buildColleagueProfileReply = (term, phoneMatches, emailMatches, extraMatches) => {
@@ -2504,15 +2543,20 @@ export default function ITAssistant() {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
         const term = resolveFollowupSearchTerm(extractPhoneSearchTerm(userText), messages);
         const matches = searchPhoneDirectory(docs, term);
-        if (matches.length > 0) {
-          const reply = `📞 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
+        const emailMatches = searchEmployeeDirectory(docs, term);
+        const extraMatches = searchColleagueExtraInfo(docs, term);
+        if (matches.length > 0 || emailMatches.length > 0) {
+          const reply = (matches.length && emailMatches.length)
+            ? buildColleagueProfileReply(term, matches, emailMatches, extraMatches)
+            : matches.length
+              ? `📞 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n")
+              : `📧 نتایج جستجو برای «${term}»:\n\n` + emailMatches.map(m => "- " + m).join("\n");
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
           logChat("phone_lookup", "deterministic");
           setLoading(false);
           return;
         }
-        // اگه هیچ match‌ای نبود (مثلاً غلط املایی یا سوال اصلاً درباره تلفن نبود)، بذار جریان عادی AI ادامه پیدا کنه
       } catch (e) {
         // بذار جریان عادی AI ادامه پیدا کنه
       }
@@ -2525,15 +2569,18 @@ export default function ITAssistant() {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
         const term = resolveFollowupSearchTerm(extractEmployeeSearchTerm(userText), messages);
         const matches = searchEmployeeDirectory(docs, term);
-        if (matches.length > 0) {
-          const reply = `📧 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
+        const phoneMatches = searchPhoneDirectory(docs, term);
+        const extraMatches = searchColleagueExtraInfo(docs, term);
+        if (matches.length > 0 || phoneMatches.length > 0) {
+          const reply = (phoneMatches.length || extraMatches.length)
+            ? buildColleagueProfileReply(term, phoneMatches, matches, extraMatches)
+            : `📧 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
           logChat("employee_lookup", "deterministic");
           setLoading(false);
           return;
         }
-        // اگه هیچ match‌ای نبود، بذار جریان عادی AI ادامه پیدا کنه (شاید سند اصلاً «جدول با هدر» نیست)
       } catch (e) {
         // بذار جریان عادی AI ادامه پیدا کنه
       }
