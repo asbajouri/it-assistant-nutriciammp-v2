@@ -641,22 +641,30 @@ const wordsLikelyMatch = (queryWord, dataWord) => {
   const dLower = dataWord.toLowerCase();
   if (qLower.length >= 3 && dLower.length >= 3 && dLower.includes(qLower)) return true;
   if (qLower.length >= 3 && dLower.length >= 4 && qLower.includes(dLower)) return true;
-  const qLatin = transliterateFaToLatin(queryWord).toLowerCase();
+  const qLatin = transliterateFaToLatin(queryWord).toLowerCase().replace(/[^a-z]/g, "");
   const dLatin = dataWord.toLowerCase().replace(/[^a-z]/g, "");
-  // تطبیق نزدیک لاتینی کامل (جلوگیری از احمدرضا≈حمیدرضا فقط با اسکلت)
+  if (!qLatin || !dLatin) return false;
+  // بعد از تبدیل فارسی→لاتین: برابری کامل (علی→ali ≈ Ali)
+  if (qLatin.length >= 3 && qLatin === dLatin) return true;
+  // تطبیق نزدیک لاتینی برای اسم‌های بلندتر
   if (qLatin.length >= 5 && dLatin.length >= 5) {
     if (qLatin === dLatin) return true;
-    // یکی پیشوند/شبیه خیلی نزدیک دیگری باشد
-    if (qLatin.length >= 6 && dLatin.length >= 6) {
-      const a = qLatin.slice(0, 6);
-      const b = dLatin.slice(0, 6);
-      if (a === b) return true;
+    if (qLatin.length >= 6 && dLatin.length >= 6 && qLatin.slice(0, 6) === dLatin.slice(0, 6)) return true;
+    // «طلایی»→tlaii در برابر talaei: اسکلت یکسان + طول نزدیک
+    if (Math.abs(qLatin.length - dLatin.length) <= 2) {
+      const qSkEarly = consonantSkeleton(qLatin);
+      const dSkEarly = consonantSkeleton(dLatin);
+      if (qSkEarly.length >= 2 && qSkEarly === dSkEarly) return true;
     }
   }
   const qSkeleton = consonantSkeleton(qLatin);
-  const dSkeleton = consonantSkeleton(dataWord);
-  if (qSkeleton.length < 3 || dSkeleton.length < 3) return false;
-  // برای اسم‌های بلند، اسکلت باید دقیقاً یکی باشد و اختلاف طول زیاد نباشد
+  const dSkeleton = consonantSkeleton(dLatin);
+  if (qSkeleton.length < 2 || dSkeleton.length < 2) return false;
+  // اسکلت ۲حرفی (طلایی→tl ≈ talaei→tl) فقط با طول لاتین نزدیک
+  if (qSkeleton.length < 3 || dSkeleton.length < 3) {
+    return qSkeleton === dSkeleton && qLatin.length >= 4 && dLatin.length >= 4
+      && Math.abs(qLatin.length - dLatin.length) <= 2;
+  }
   if (qSkeleton === dSkeleton) {
     if (Math.abs(qLatin.length - dLatin.length) > 3 && qLatin.length >= 6) return false;
     return true;
@@ -762,6 +770,40 @@ const searchEmployeeDirectory = (docs, term) => {
   }
   return [...new Set(results)];
 };
+
+
+// نام‌های نویز در خطوط داخلی (شهر/واحد) — نباید به‌عنوان بخش اسم برای جستجوی ایمیل استفاده شوند
+const PHONE_LINE_NOISE = new Set([
+  "مشهد", "تهران", "اصفهان", "شیراز", "تبریز", "کرج", "اهواز", "قم", "رشت", "کرمان",
+  "مدیریت", "صنعتی", "واحد", "داخلی", "اداری", "مالی", "فروش", "بازرگانی", "تولید",
+  "فنی", "انبار", "کارخانه", "دفتر", "مرکزی", "شعبه", "گروه", "بخش", "ایمنی", "منابع",
+  "انسانی", "پشتیبانی", "خدمات", "مهندسی", "کیفیت", "کنترل", "it", "is", "hr", "of",
+]);
+
+/** از خطوط داخلی، کاندیدهای جستجوی ایمیل بساز و در AD بگرد — برای همهٔ همکاران یکسان کار می‌کند. */
+const findEmailsFromPhoneLines = (docs, phoneMatches) => {
+  const found = new Set();
+  const tryTerm = (t) => {
+    if (!t || t.trim().length < 2) return;
+    searchEmployeeDirectory(docs, t).forEach((r) => found.add(r));
+  };
+  for (const pl of phoneMatches || []) {
+    const namePart = (pl.split(/داخلی\s*:/i)[0] || pl).replace(/\d{3,5}/g, " ");
+    const bits = namePart
+      .replace(/[—–\-_/|,،]/g, " ")
+      .split(/\s+/)
+      .map((x) => x.trim())
+      .filter((x) => x.length >= 2 && !PHONE_LINE_NOISE.has(x.toLowerCase()) && !PHONE_LINE_NOISE.has(x));
+    if (!bits.length) continue;
+    tryTerm(bits.join(" "));
+    if (bits.length >= 2) tryTerm([...bits].reverse().join(" "));
+    for (const b of bits) {
+      if (b.length >= 4) tryTerm(b);
+    }
+  }
+  return [...found];
+};
+
 
 // ۳۰ اوت ۲۰۲۶: وقتی فقط اسم همکار تایپ می‌شود (بدون «داخلی»/«ایمیل»)
 const isLikelyPersonNameQuery = (text) => {
@@ -2625,11 +2667,16 @@ export default function ITAssistant() {
       try {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
         const term = resolveFollowupSearchTerm(extractEmployeeSearchTerm(userText), messages);
-        const matches = searchEmployeeDirectory(docs, term);
+        let matches = searchEmployeeDirectory(docs, term);
         const phoneMatches = searchPhoneDirectory(docs, term);
+        // اگر ایمیل با نام فارسی پیدا نشد، از روی خط داخلی دوباره در AD بگرد (عمومی)
+        if (!matches.length && phoneMatches.length) {
+          matches = findEmailsFromPhoneLines(docs, phoneMatches);
+        }
         const extraMatches = searchColleagueExtraInfo(docs, term);
         if (matches.length > 0 || phoneMatches.length > 0) {
-          const reply = (phoneMatches.length || extraMatches.length)
+          // اگر صریحاً ایمیل خواسته و پیدا شد، ایمیل را برجسته کن؛ داخلی را هم به‌عنوان مکمل بگذار
+          const reply = (phoneMatches.length || extraMatches.length || matches.length)
             ? buildColleagueProfileReply(term, phoneMatches, matches, extraMatches)
             : `📧 نتایج جستجو برای «${term}»:\n\n` + matches.map(m => "- " + m).join("\n");
           setMessages([...newMessages, { role: "assistant", content: reply }]);
@@ -2652,20 +2699,9 @@ export default function ITAssistant() {
         if (term && term.trim().length >= 2) {
           const phoneMatches = searchPhoneDirectory(docs, term);
           let emailMatches = searchEmployeeDirectory(docs, term);
-          // اگر ایمیل با همان عبارت پیدا نشد، از روی خط داخلی (مولوی - امیررضا) دوباره جستجو کن
+          // اگر ایمیل با نام فارسی پیدا نشد، از روی خط داخلی دوباره در AD بگرد (عمومی)
           if (!emailMatches.length && phoneMatches.length) {
-            const fromPhone = new Set();
-            for (const pl of phoneMatches) {
-              const namePart = pl.split(/داخلی\s*:/i)[0] || pl;
-              const bits = namePart.replace(/[—"']/g, " ").split(/\s*-\s*|\s+/).map((x) => x.trim()).filter((x) => x.length >= 2 && !/^(it|is)$/i.test(x));
-              if (bits.length) {
-                searchEmployeeDirectory(docs, bits.join(" ")).forEach((r) => fromPhone.add(r));
-                if (bits.length >= 2) {
-                  searchEmployeeDirectory(docs, [...bits].reverse().join(" ")).forEach((r) => fromPhone.add(r));
-                }
-              }
-            }
-            emailMatches = [...fromPhone];
+            emailMatches = findEmailsFromPhoneLines(docs, phoneMatches);
           }
           const extraMatches = searchColleagueExtraInfo(docs, term);
           if (phoneMatches.length || emailMatches.length || extraMatches.length) {
