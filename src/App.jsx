@@ -112,9 +112,11 @@ const matchWebSource = (userText, sources) => {
   // وقتی چندتا منبع هم‌زمان با یه سوال مچ می‌شن (مثلاً هم Navasan هم tgju.org روی «دلار»)، اولویت
   // (عدد کوچیک‌تر = مهم‌تر، پیش‌فرض ۰) تعیین‌کننده‌ی اصلیه. در اولویت برابر، Navasan برای
   // سوالات قیمتی (طلا/دلار/سکه/رمزارز) ترجیح داده می‌شه چون API ساختاریافته و واحد مشخص داره.
-  // فقط برای ارز/رمزارز Navasan را ترجیح بده — طلا/سکه/نقره از اولویت پنل (معمولاً ۰)
-  const preferNavasan = /دلار|تتر|یورو|پوند|درهم|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز/i.test(userText)
-    && !/طلا|سکه|نقره|مثقال/i.test(userText);
+  // Navasan را ترجیح بده برای ارز/رمزارز، یا وقتی سوال ترکیبی فلز+ارز است
+  // (چون فقط Navasan همه را یکجا و structured دارد). سکه/نقره خالص از اولویت پنل می‌آید.
+  const hasFxCrypto = /دلار|تتر|یورو|پوند|درهم|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز/i.test(userText);
+  const hasMetal = /طلا|سکه|نقره|مثقال/i.test(userText);
+  const preferNavasan = hasFxCrypto; // حتی اگر فلز هم باشد (سوال ترکیبی)
   candidates.sort((a, b) => {
     const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
     if (pa !== pb) return pa - pb;
@@ -2771,14 +2773,18 @@ export default function ITAssistant() {
       const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
       const isGold18Q = /طلا|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
       const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
+      // سوال ترکیبی (فلز + ارز/رمزارز) مثل «قیمت طلا سکه دلار بیت‌کوین» → فقط Navasan همه را یکجا دارد
+      const isMixedPriceQ = isFxCryptoQ && isMetalQ;
       const isPriceQ = isFxCryptoQ || isMetalQ;
       let matchedSources = matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
-      if (((isFxCryptoQ && !isMetalQ) || isGold18Q) && webSources?.length) {
+      // Navasan اول وقتی: فقط ارز/رمزارز، یا طلای ۱۸ خالص، یا سوال ترکیبی فلز+ارز
+      if ((isFxCryptoQ || isGold18Q || isMixedPriceQ) && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
       }
-      if (isCoinOrSilverQ && webSources?.length) {
+      // سکه/نقره خالص (بدون دلار/رمزارز) → اولویت ۰ غیر-Navasan اول، بعد Navasan
+      if (isCoinOrSilverQ && !isFxCryptoQ && webSources?.length) {
         const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
         const metalMatches = matchWebSource(userText, nonNav.length ? nonNav : webSources);
         if (metalMatches.length > 0) {
