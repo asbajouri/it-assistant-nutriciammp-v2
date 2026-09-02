@@ -9,14 +9,10 @@ let _qaCache = null;
 let _qaCacheTime = 0;
 
 async function fetchWithFallback(path, options) {
-  // retries/retryDelayMs پیش‌فرض ۰/بدون‌تأخیرن — یعنی رفتار همه‌ی call siteهای فعلی (weather,
-  // admin/login, extract-image, ...) دقیقاً همون قبلیه، هیچ‌کدوم عوض نشدن.
-  // فقط /chat به‌صورت صریح retries:1 پاس می‌ده (پایین‌تر) چون تنها جایی‌ست که به‌خاطر زنجیره‌ی
-  // ۴ تا provider رایگان، گاهی یه burst کوتاه باعث ۵۰۳ میشه که چند ثانیه بعد خودش برطرف میشه.
-  // ۱۸ اوت ۲۰۲۶: پارامتر signal (اختیاری) اضافه شد تا فراخوان بتونه یه AbortSignal بیرونی بده (مثلاً
-  // برای دکمه‌ی «توقف» موقع لود جواب AI) — این signal با همون AbortController داخلیِ هر تلاش (که
-  // برای timeout استفاده می‌شه) ترکیب می‌شه، بدون این‌که رفتار timeout هیچ‌کدوم از call siteهای دیگه عوض بشه.
+  // ۲ سپتامبر ۲۰۲۶: هر پاسخ HTTP (حتی 503) برگردانده می‌شود تا caller متن خطای بک‌اند را ببیند.
+  // فقط وقتی هیچ پاسخی از شبکه نرسد خطا پرتاب می‌شود.
   const { timeoutMs, retries = 0, retryDelayMs = 2500, signal: externalSignal, ...fetchOptions } = options || {};
+  let lastNetworkError = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (externalSignal && externalSignal.aborted) throw new DOMException("لغو شد توسط کاربر", "AbortError");
     for (const base of API_URLS) {
@@ -32,9 +28,10 @@ async function fetchWithFallback(path, options) {
           clearTimeout(t);
           if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
         }
-        if (res.ok) return res;
+        return res;
       } catch (e) {
         if (externalSignal && externalSignal.aborted) throw new DOMException("لغو شد توسط کاربر", "AbortError");
+        lastNetworkError = e;
         continue;
       }
     }
@@ -42,7 +39,10 @@ async function fetchWithFallback(path, options) {
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
-  throw new Error("هر دو سرور در دسترس نیستند");
+  const detail = lastNetworkError && lastNetworkError.name === "AbortError"
+    ? "زمان پاسخ تمام شد (timeout)"
+    : (lastNetworkError && lastNetworkError.message) || "خطای شبکه";
+  throw new Error(`سرور API در دسترس نیست (${detail}). چند لحظه دیگر دوباره امتحان کنید.`);
 }
 // === آب و هوا — تشخیص سوال و استخراج نام شهر ===
 const IRAN_CITIES = ["تهران", "مشهد", "شاندیز", "اصفهان", "شیراز", "تبریز", "اهواز", "کرج", "قم", "کرمان", "یزد", "رشت", "همدان", "ارومیه", "زاهدان", "ساری", "بندرعباس", "کرمانشاه", "اراک", "زنجان", "قزوین", "گرگان", "سنندج", "خرم‌آباد", "خرم آباد", "یاسوج", "بجنورد", "بیرجند", "ایلام", "بوشهر", "دماوند", "توس"];
@@ -520,7 +520,7 @@ const guessNewsCategory = (text) => {
 // این تابع مستقیم توی متن سندها دنبال خط‌هایی می‌گرده که هم شبیه رکورد تلفن باشن (عدد ۳ تا ۵ رقمی داشته باشن) هم عبارت جستجو رو داشته باشن
 const isPhoneQuery = (text) => /داخلی|شماره\s*تماس|شماره\s*تلفن|تلفن\s*داخلی/i.test(text);
 
-const PHONE_QUERY_STOPWORDS = ["داخلی", "شماره", "تماس", "تلفن", "چنده", "چیه", "چیست", "هست", "است", "آقای", "خانم", "جناب", "سرکار", "لطفا", "لطفاً", "بگو", "بده"];
+const PHONE_QUERY_STOPWORDS = ["داخلی", "شماره", "تماس", "تلفن", "چنده", "چیه", "چیست", "هست", "هستی", "است", "آقای", "خانم", "جناب", "سرکار", "لطفا", "لطفاً", "بگو", "بده", "برای", "شما", "من", "پیدا", "کن", "کدام", "کدوم", "چه", "چی", "کی", "مورد", "نظر", "بخش", "کارمند", "دپارتمان", "دائمی", "دایمی", "همیشگی"];
 
 // ۱۳ اوت ۲۰۲۶: حذف stopword با regex ساده (substring) یه باگ واقعی داشت: کلمه‌ی توقف «را» به‌عنوان
 // substring داخل کلمه‌های واقعی هم پیدا می‌شه — مثلاً «چنارانی» دقیقاً شامل «را» هست (چ-ن-ا-ر-ا-ن-ی،
@@ -2646,6 +2646,14 @@ export default function ITAssistant() {
       try {
         const docs = await sbFetch("knowledge_docs?select=id,title,category,content&order=created_at.desc").catch(() => []);
         const term = resolveFollowupSearchTerm(extractPhoneSearchTerm(userText), messages);
+        if (!term || term.trim().length < 2) {
+          const reply = "برای پیدا کردن داخلی، لطفاً نام یا نام‌خانوادگی همکار را بنویسید (مثال: داخلی رضایی).";
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("phone_lookup_need_name", "deterministic");
+          setLoading(false);
+          return;
+        }
         const matches = searchPhoneDirectory(docs, term);
         if (matches.length > 0) {
           const reply = "📞 نتایج جستجو برای «" + term + "»:\n\n" + matches.map(m => "- " + m).join("\n");
@@ -2655,9 +2663,14 @@ export default function ITAssistant() {
           setLoading(false);
           return;
         }
-        // اگه هیچ match‌ای نبود، بذار جریان عادی AI ادامه پیدا کنه
+        const reply = "📞 برای «" + term + "» شماره‌ای در لیست داخلی اسناد پیدا نشد. نام را دقیق‌تر یا فقط نام‌خانوادگی امتحان کنید.";
+        setMessages([...newMessages, { role: "assistant", content: reply }]);
+        if (userId) saveMessage(userId, "assistant", reply);
+        logChat("phone_lookup_empty", "deterministic");
+        setLoading(false);
+        return;
       } catch (e) {
-        // بذار جریان عادی AI ادامه پیدا کنه
+        // فقط خطای فنی → ادامه به AI
       }
     }
 
@@ -2974,6 +2987,8 @@ export default function ITAssistant() {
         // می‌مونه (بخش LM Studio Relay رو ببین) — سقف اینجا رو به ۱۰۰ ثانیه بردیم تا زودتر از
         // بک‌اند خودش تسلیم نشه.
         timeoutMs: forceLocalAI ? 130000 : 70000,
+        retries: 1,
+        retryDelayMs: 1500,
         signal: abortController.signal,
       });
       const data = await res.json();
