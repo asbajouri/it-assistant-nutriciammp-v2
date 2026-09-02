@@ -115,7 +115,7 @@ const matchWebSource = (userText, sources) => {
   // Navasan را ترجیح بده برای ارز/رمزارز، یا وقتی سوال ترکیبی فلز+ارز است
   // (چون فقط Navasan همه را یکجا و structured دارد). سکه/نقره خالص از اولویت پنل می‌آید.
   const hasFxCrypto = /دلار|تتر|یورو|پوند|درهم|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز/i.test(userText);
-  const hasMetal = /طلا|سکه|نقره|مثقال/i.test(userText);
+  const hasMetal = /طلا(?!یی)|سکه|نقره|مثقال/i.test(userText);
   const preferNavasan = hasFxCrypto; // حتی اگر فلز هم باشد (سوال ترکیبی)
   candidates.sort((a, b) => {
     const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
@@ -149,7 +149,7 @@ const looksLikeWebSourceNotFound = (replyText) =>
   /پیدا نشد|مشخص نشد|موجود نیست|ذکر نشده|در دسترس نیست|توی این صفحه نیست|نداره|نیامده|نیومده/i.test(replyText || "");
 // عدد طلای ۱۸ عیار گرمی در بازار ایران الان چند میلیون تومان است؛ اگر AI عددی زیر ۱ میلیون داد، اشتباه است
 const looksLikeSuspiciousGoldPrice = (replyText, userQ) => {
-  if (!/طلا|عیار|گرم/i.test(userQ || "") || /سکه|نقره/i.test(userQ || "")) return false;
+  if (!/طلا(?!یی)|عیار|گرم/i.test(userQ || "") || /سکه|نقره/i.test(userQ || "")) return false;
   const nums = (replyText || "").replace(/,/g, "").match(/\d{4,}/g) || [];
   if (nums.length === 0) return false;
   const main = Math.max(...nums.map(n => parseInt(n, 10)));
@@ -770,7 +770,8 @@ const isLikelyPersonNameQuery = (text) => {
   if (isPhoneQuery(t) || isEmployeeLookupQuery(t)) return false;
   if (isMenuQuery(t) || isWeatherQuery(t) || isActivationQuery(t)) return false;
   if (isNewsQuery && typeof isNewsQuery === "function" && isNewsQuery(t)) return false;
-  if (/دلار|تتر|یورو|پوند|درهم|لیر|حواله|سکه|طلا|نقره|بیت\s*کوین|قیمت|نرخ|اخبار|آب\s*هوا|منو|غذا|کانتین/i.test(t)) return false;
+  // «طلایی» (فامیلی) را رد نکن؛ فقط طلا به‌عنوان کالای قیمتی
+  if (/دلار|تتر|یورو|پوند|درهم|لیر|حواله|سکه|طلا(?!یی)|نقره|بیت\s*کوین|قیمت|نرخ|اخبار|آب\s*هوا|منو|غذا|کانتین/i.test(t)) return false;
   if (/\d/.test(t)) return false;
   const words = t.replace(/[؟?!.,،]/g, " ").split(/\s+/).filter(Boolean);
   if (words.length < 1 || words.length > 4) return false;
@@ -2770,13 +2771,16 @@ export default function ITAssistant() {
       // طلای ۱۸ / عیار / گرم → Navasan اول (deterministic روی 18ayar درست است؛ estjt با AI عدد اشتباه می‌داد مثل 881617)
       // سکه / نقره → اولویت ۰ غیر-Navasan اول، Navasan fallback
       const isFxCryptoQ = /دلار|تتر|یورو|پوند|درهم|لیر|حواله|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز|ارز\s*دیجیتال/i.test(userText);
-      const isMetalQ = /طلا|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
-      const isGold18Q = /طلا|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
+      // «طلایی» فامیلی است؛ فقط «طلا» / «طلای ۱۸» کالای قیمتی‌اند
+      const isMetalQ = /طلا(?!یی)|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
+      const isGold18Q = /طلا(?!یی)|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
       const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
       // سوال ترکیبی (فلز + ارز/رمزارز) مثل «قیمت طلا سکه دلار بیت‌کوین» → فقط Navasan همه را یکجا دارد
       const isMixedPriceQ = isFxCryptoQ && isMetalQ;
       const isPriceQ = isFxCryptoQ || isMetalQ;
-      let matchedSources = matchWebSource(userText, webSources);
+      // «قیمت» / «نرخ» به‌تنهایی بدون نام ارز/فلز → وارد مسیر منابع وب نشو (وگرنه دلار پیش‌فرض می‌شد)
+      const isBarePriceOnly = /^\s*(قیمت|نرخ|چند|چنده)(\s+چ[یه])?\s*[؟?!.]*\s*$/i.test(userText);
+      let matchedSources = isBarePriceOnly ? [] : matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
       // Navasan اول وقتی: فقط ارز/رمزارز، یا طلای ۱۸ خالص، یا سوال ترکیبی فلز+ارز
       if ((isFxCryptoQ || isGold18Q || isMixedPriceQ) && webSources?.length) {
