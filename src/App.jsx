@@ -437,6 +437,89 @@ ${monthTableText}
   }
 };
 
+
+// === جواب قطعی تاریخ (شمسی + میلادی + هفته ISO میلادی) — بدون AI ===
+// هفتهٔ میلادی: ISO-8601 (هفته از دوشنبه، هفتهٔ ۱ = هفتهٔ دارای اولین پنجشنبهٔ سال)
+const getISOWeekNumber = (date) => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // Mon=1 … Sun=7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+};
+
+const isDateQuery = (text) => {
+  if (!text) return false;
+  const t = text.replace(/\u200c/g, " ").trim();
+  // منو / غذا / قیمت / اخبار / آب‌وهوا / داخلی را قاطی نکن
+  if (isMenuQuery(t) || isWeatherQuery(t) || isNewsQuery(t)) return false;
+  if (/قیمت|نرخ|دلار|سکه|طلا(?!یی)|نقره|بیت\s*کوین|داخلی|ایمیل/i.test(t)) return false;
+  return /\b(امروز|فردا|دیروز|پریروز|پس\s*فردا|تاریخ|چندم|چه\s*روزی|روز\s*هفته|هفته\s*چند|شمسی|میلادی|چه\s*تاریخی|امروز\s*چند|تاریخ\s*امروز)\b/i.test(t)
+    || /تاریخ\s*(امروز|فردا|دیروز)?/i.test(t)
+    || /امروز\s*چند(م|شه|ش)?/i.test(t)
+    || /هفته\s*(چندم|چند|چندم\s*سال)/i.test(t);
+};
+
+const formatOneCalendarDay = (date) => {
+  const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
+  const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+  const monthNamesEn = ["ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"];
+  const toEnDigits = (s) => String(s).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(date);
+  const get = (type) => parts.find(p => p.type === type)?.value || "";
+  const pYear = parseInt(toEnDigits(get("year")), 10);
+  const pMonth = parseInt(toEnDigits(get("month")), 10);
+  const pDay = parseInt(toEnDigits(get("day")), 10);
+  const gYear = date.getFullYear();
+  const gMonth = date.getMonth() + 1;
+  const gDay = date.getDate();
+  const weekdayFa = weekdayNamesFa[date.getDay()];
+  const isoWeek = getISOWeekNumber(date);
+  const companyWeek = getContinuousWeekNumber(date);
+  const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
+  return {
+    weekdayFa,
+    shamsi: `${pDay} ${monthNamesFa[pMonth - 1]} ${pYear}`,
+    miladi: `${gDay} ${monthNamesEn[gMonth - 1]} ${gYear}`,
+    miladiNum: `${gYear}/${String(gMonth).padStart(2, "0")}/${String(gDay).padStart(2, "0")}`,
+    isoWeek,
+    companyWeekLabel: weekNamesFa[companyWeek - 1],
+  };
+};
+
+const buildDeterministicDateReply = (userText) => {
+  const t = (userText || "").replace(/\u200c/g, " ");
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  let target = new Date(today);
+  let label = "امروز";
+  if (/پس\s*فردا/i.test(t)) { target.setDate(target.getDate() + 2); label = "پس‌فردا"; }
+  else if (/فردا/i.test(t)) { target.setDate(target.getDate() + 1); label = "فردا"; }
+  else if (/پریروز/i.test(t)) { target.setDate(target.getDate() - 2); label = "پریروز"; }
+  else if (/دیروز/i.test(t)) { target.setDate(target.getDate() - 1); label = "دیروز"; }
+  // وگرنه امروز
+
+  const info = formatOneCalendarDay(target);
+  const todayInfo = formatOneCalendarDay(today);
+  const lines = [
+    `${label}: ${info.weekdayFa}`,
+    `شمسی: ${info.shamsi}`,
+    `میلادی: ${info.miladi} (${info.miladiNum})`,
+    `هفتهٔ میلادی (ISO): هفته ${info.isoWeek} سال ${target.getFullYear()}`,
+  ];
+  // اگر فقط «هفته چندم» پرسیده و روز نسبی نگفته، تمرکز روی امروز
+  if (/هفته\s*(چندم|چند)/i.test(t) && !/(فردا|دیروز|پریروز|پس\s*فردا)/i.test(t)) {
+    return [
+      `امروز ${todayInfo.weekdayFa} است.`,
+      `شمسی: ${todayInfo.shamsi}`,
+      `میلادی: ${todayInfo.miladi} (${todayInfo.miladiNum})`,
+      `هفتهٔ میلادی (ISO): هفته ${todayInfo.isoWeek} سال ${today.getFullYear()}`,
+    ].join("\n");
+  }
+  return lines.join("\n");
+};
+
+
 // === انتخاب شیت مرتبط از سندهای چندشیتی (مثل آرشیو چندماهه/چندساله منوی غذا) ===
 // چون سند می‌تونه خیلی بزرگ باشه، به‌جای بریدن از ابتدای متن (که شیت‌های قدیمی رو می‌ده)،
 // نزدیک‌ترین شیت به ماه جاری شمسی رو پیدا و فقط همون رو به مدل می‌دیم
@@ -812,6 +895,7 @@ const isLikelyPersonNameQuery = (text) => {
   if (isPhoneQuery(t) || isEmployeeLookupQuery(t)) return false;
   if (isMenuQuery(t) || isWeatherQuery(t) || isActivationQuery(t)) return false;
   if (isNewsQuery && typeof isNewsQuery === "function" && isNewsQuery(t)) return false;
+  if (typeof isDateQuery === "function" && isDateQuery(t)) return false;
   // «طلایی» (فامیلی) را رد نکن؛ فقط طلا به‌عنوان کالای قیمتی
   if (/دلار|تتر|یورو|پوند|درهم|لیر|حواله|سکه|طلا(?!یی)|نقره|بیت\s*کوین|قیمت|نرخ|اخبار|آب\s*هوا|منو|غذا|کانتین/i.test(t)) return false;
   if (/\d/.test(t)) return false;
@@ -2718,6 +2802,22 @@ export default function ITAssistant() {
       }
     }
 
+    // سوال تاریخ (امروز/فردا/دیروز/هفته چندم…) — جواب قطعی شمسی+میلادی+هفته ISO بدون AI
+    if (isDateQuery(userText)) {
+      try {
+        const reply = buildDeterministicDateReply(userText);
+        if (reply) {
+          setMessages([...newMessages, { role: "assistant", content: reply }]);
+          if (userId) saveMessage(userId, "assistant", reply);
+          logChat("date_lookup", "deterministic");
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        // بذار جریان عادی AI ادامه پیدا کنه
+      }
+    }
+
     // اگه سوال درباره منوی غذا بود، مستقیم و بدون AI از روی سند منو محاسبه کن (چون مدل‌ها در تطبیق تاریخ قابل‌اعتماد نیستن)
     if (isMenuQuery(userText)) {
       try {
@@ -2810,7 +2910,9 @@ export default function ITAssistant() {
       // «طلایی» فامیلی است؛ فقط «طلا» / «طلای ۱۸» کالای قیمتی‌اند
       const isMetalQ = /طلا(?!یی)|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
       const isGold18Q = /طلا(?!یی)|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
-      const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
+      const isCoinQ = /سکه/i.test(userText);
+      const isSilverQ = /نقره/i.test(userText);
+      const isCoinOrSilverQ = isCoinQ || isSilverQ;
       // سوال ترکیبی (فلز + ارز/رمزارز) مثل «قیمت طلا سکه دلار بیت‌کوین» → فقط Navasan همه را یکجا دارد
       const isMixedPriceQ = isFxCryptoQ && isMetalQ;
       const isPriceQ = isFxCryptoQ || isMetalQ;
@@ -2818,13 +2920,14 @@ export default function ITAssistant() {
       const isBarePriceOnly = /^\s*(قیمت|نرخ|چند|چنده)(\s+چ[یه])?\s*[؟?!.]*\s*$/i.test(userText);
       let matchedSources = isBarePriceOnly ? [] : matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
-      // Navasan اول وقتی: فقط ارز/رمزارز، یا طلای ۱۸ خالص، یا سوال ترکیبی فلز+ارز
-      if ((isFxCryptoQ || isGold18Q || isMixedPriceQ) && webSources?.length) {
+      // Navasan اول وقتی: ارز/رمزارز، طلای ۱۸ خالص، نقره (گرم/تومان قطعی)، یا سوال ترکیبی فلز+ارز
+      // نقره مثل طلای ۱۸ از Navasan با کلید silver (تومان/گرم) می‌آید
+      if ((isFxCryptoQ || isGold18Q || isSilverQ || isMixedPriceQ) && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
       }
-      // سکه/نقره خالص (بدون دلار/رمزارز) → اولویت ۰ غیر-Navasan اول، بعد Navasan
-      if (isCoinOrSilverQ && !isFxCryptoQ && webSources?.length) {
+      // سکه خالص (بدون نقره/دلار/رمزارز) → اولویت ۰ غیر-Navasan اول، بعد Navasan
+      if (isCoinQ && !isSilverQ && !isFxCryptoQ && webSources?.length) {
         const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
         const metalMatches = matchWebSource(userText, nonNav.length ? nonNav : webSources);
         if (metalMatches.length > 0) {
