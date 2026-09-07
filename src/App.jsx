@@ -3270,24 +3270,36 @@ export default function ITAssistant() {
         {messages.map((msg, i) => {
           const isUser = msg.role === "user";
           // EN: کاربر راست / دستیار چپ — FA (rtl): همان رفتار قبلی با direction والد
+          // EN: سوال کاربر چپ / جواب دستیار راست — مطابق خواسته UI
           const rowJustify = isEn
-            ? (isUser ? "flex-end" : "flex-start")
+            ? (isUser ? "flex-start" : "flex-end")
             : (isUser ? "flex-start" : "flex-end");
           const bubbleRadius = isEn
-            ? (isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px")
+            ? (isUser ? "18px 18px 18px 4px" : "18px 18px 4px 18px")
             : (isUser ? "18px 18px 18px 4px" : "18px 18px 4px 18px");
           const textDir = isEn || isLatinText(msg.content) ? "ltr" : "rtl";
           const textAlign = isEn || isLatinText(msg.content) ? "left" : "right";
+          const userAvatar = (
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>
+          );
+          const botAvatar = (
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>
+          );
+          const bubble = (
+            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: bubbleRadius, background: isUser ? "#0078d4" : "#ffffff", color: isUser ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: textDir, textAlign: textAlign }}>{isUser ? msg.content : renderMessage(msg.content)}</div>
+          );
           return (
           <div key={i} style={{ display: "flex", justifyContent: rowJustify, alignItems: "flex-end", gap: 8, width: "100%" }}>
-            {msg.role === "assistant" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>}
-            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: bubbleRadius, background: isUser ? "#0078d4" : "#ffffff", color: isUser ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: textDir, textAlign: textAlign }}>{isUser ? msg.content : renderMessage(msg.content)}</div>
-            {isUser && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>}
+            {isEn ? (
+              isUser ? <>{userAvatar}{bubble}</> : <>{bubble}{botAvatar}</>
+            ) : (
+              isUser ? <>{bubble}{userAvatar}</> : <>{botAvatar}{bubble}</>
+            )}
           </div>
           );
         })}
         {loading && (
-          <div style={{ display: "flex", justifyContent: isEn ? "flex-start" : "flex-end", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: isEn ? "flex-end" : "flex-end", alignItems: "center", gap: 8 }}>
             <button
               onClick={stopGeneration}
               title="توقف پاسخ"
@@ -3302,11 +3314,16 @@ export default function ITAssistant() {
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ padding: "12px 16px", background: "#fff", borderTop: "1px solid #e0e0e0", display: "flex", gap: 10, alignItems: "flex-end", direction: isEn ? "ltr" : "rtl" }}>
+      <div style={{ padding: "12px 16px", background: "#fff", borderTop: "1px solid #e0e0e0", display: "flex", gap: 10, alignItems: "flex-end", direction: isEn ? "ltr" : "rtl", flexDirection: isEn ? "row" : "row" }}>
+        {isEn && (
+          <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>➤</button>
+        )}
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder={isEn ? "Type your IT question..." : "سوال IT خود را بنویسید..."} rows={1}
           style={{ flex: 1, padding: "10px 14px", borderRadius: 22, border: "1.5px solid #d0d0d0", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, direction: isEn ? "ltr" : "rtl", textAlign: isEn ? "left" : "right", lineHeight: 1.5, maxHeight: 120, overflowY: "auto", transition: "border-color 0.2s", unicodeBidi: "plaintext" }}
           onFocus={e => e.target.style.borderColor = "#0078d4"} onBlur={e => e.target.style.borderColor = "#d0d0d0"} />
-        <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0, transform: isEn ? "scaleX(-1)" : "none" }}>➤</button>
+        {!isEn && (
+          <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>➤</button>
+        )}
       </div>
 
       {showAdminLogin && (
