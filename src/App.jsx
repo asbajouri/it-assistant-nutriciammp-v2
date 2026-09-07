@@ -57,6 +57,49 @@ const normalizeText = (t) => t
   .replace(/[؀-ۿ]+/g, m => m)
   .trim();
 
+
+// === تاریخ امروز / فردا / دیروز + هفته میلادی (قطعی، بدون AI) ===
+const isDateQuery = (text) => {
+  const t = text || "";
+  if (/قیمت|نرخ|دلار|طلا|سکه|آب\s*هوا|منو|غذا|داخلی|ایمیل|اخبار/i.test(t)) return false;
+  return /تاریخ|امروز|فردا|دیروز|پریروز|پس\s*فردا|چه\s*روز|چندم|چند\s*شنبه|هفته\s*چند|week\s*number|what\s*day|today'?s\s*date|what\s*date/i.test(t);
+};
+
+const formatDateReply = (userText, lang = "fa") => {
+  const t = (userText || "").trim();
+  const now = new Date();
+  let offset = 0;
+  if (/پریروز|پریرورز/i.test(t)) offset = -2;
+  else if (/دیروز|yesterday/i.test(t)) offset = -1;
+  else if (/پس\s*فردا|day\s*after\s*tomorrow/i.test(t)) offset = 2;
+  else if (/فردا|tomorrow/i.test(t)) offset = 1;
+  // else امروز / today / تاریخ
+  const d = new Date(now);
+  d.setDate(d.getDate() + offset);
+  const weekdayFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"][d.getDay()];
+  const weekdayEn = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()];
+  const toEn = (s) => String(s).replace(/[۰-۹]/g, (x) => "۰۱۲۳۴۵۶۷۸۹".indexOf(x));
+  const pParts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "long", day: "numeric" }).formatToParts(d);
+  const pDay = toEn(pParts.find((x) => x.type === "day")?.value || "");
+  const pMonth = pParts.find((x) => x.type === "month")?.value || "";
+  const pYear = toEn(pParts.find((x) => x.type === "year")?.value || "");
+  const gY = d.getFullYear();
+  const gM = String(d.getMonth() + 1).padStart(2, "0");
+  const gD = String(d.getDate()).padStart(2, "0");
+  // ISO week number (هفته میلادی، دوشنبه‌محور استاندارد ISO-8601)
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const isoWeek = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+  const labelFa = offset === 0 ? "امروز" : offset === 1 ? "فردا" : offset === -1 ? "دیروز" : offset === 2 ? "پس‌فردا" : offset === -2 ? "پریروز" : "تاریخ";
+  const labelEn = offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : offset === -1 ? "Yesterday" : offset === 2 ? "Day after tomorrow" : offset === -2 ? "Day before yesterday" : "Date";
+  if (lang === "en") {
+    return `📅 ${labelEn}: ${weekdayEn}, ${gY}-${gM}-${gD} (Gregorian)\\nPersian calendar: ${pDay} ${pMonth} ${pYear}\\nISO week number: ${isoWeek}`;
+  }
+  return `📅 ${labelFa}: ${weekdayFa}\\nشمسی: ${pDay} ${pMonth} ${pYear}\\nمیلادی: ${gY}/${gM}/${gD}\\nشماره هفته میلادی (ISO): ${isoWeek}`;
+};
+
 const isWeatherQuery = (text) => /هوا|آب.?و.?هوا|دما|رطوبت|weather|temperature/i.test(text);
 
 // === منابع وب (پنل مدیریت → تب «منابع وب») — ۱۶ اوت ۲۰۲۶ ===
@@ -145,6 +188,38 @@ const isWebSourceStale = (src) => {
 // آیتم رو نداشت)، این باید مثل شکست حساب بشه و به منبع بعدی (اولویت پایین‌تر) سقوط کنه — نه
 // این‌که به‌عنوان جواب نهایی نشون داده بشه. عبارت‌ها دقیقاً همونایی‌ان که توی wsSystemPrompt به
 // AI گفتیم موقع نبودِ اطلاعات استفاده کنه.
+
+// وقتی AI می‌گوید «پیدا نشد» ولی متن صفحه عدد/ردیف مرتبط دارد (مثلاً ضایعات)، همان خطوط را نشان بده
+const extractRelevantPriceLines = (content, query) => {
+  if (!content) return [];
+  const qWords = normalizeText(query || "")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !WEB_SOURCE_STOPWORDS.has(w));
+  if (!qWords.length) return [];
+  const lines = String(content).split(/\n/).map((l) => l.trim()).filter((l) => l.length >= 4);
+  const scored = [];
+  for (const ln of lines) {
+    if (!/\d/.test(ln)) continue;
+    const n = normalizeText(ln);
+    let score = 0;
+    for (const w of qWords) {
+      if (n.includes(w) || wordBoundaryIncludes(n, w)) score += 1;
+    }
+    if (score > 0) scored.push({ score, ln: ln.slice(0, 220) });
+  }
+  scored.sort((a, b) => b.score - a.score || a.ln.length - b.ln.length);
+  const out = [];
+  const seen = new Set();
+  for (const { ln } of scored) {
+    const k = normalizeText(ln).slice(0, 80);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(ln);
+    if (out.length >= 12) break;
+  }
+  return out;
+};
+
 const looksLikeWebSourceNotFound = (replyText) =>
   /پیدا نشد|مشخص نشد|موجود نیست|ذکر نشده|در دسترس نیست|توی این صفحه نیست|نداره|نیامده|نیومده/i.test(replyText || "");
 // عدد طلای ۱۸ عیار گرمی در بازار ایران الان چند میلیون تومان است؛ اگر AI عددی زیر ۱ میلیون داد، اشتباه است
@@ -436,89 +511,6 @@ ${monthTableText}
     return "";
   }
 };
-
-
-// === جواب قطعی تاریخ (شمسی + میلادی + هفته ISO میلادی) — بدون AI ===
-// هفتهٔ میلادی: ISO-8601 (هفته از دوشنبه، هفتهٔ ۱ = هفتهٔ دارای اولین پنجشنبهٔ سال)
-const getISOWeekNumber = (date) => {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7; // Mon=1 … Sun=7
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-};
-
-const isDateQuery = (text) => {
-  if (!text) return false;
-  const t = text.replace(/\u200c/g, " ").trim();
-  // منو / غذا / قیمت / اخبار / آب‌وهوا / داخلی را قاطی نکن
-  if (isMenuQuery(t) || isWeatherQuery(t) || isNewsQuery(t)) return false;
-  if (/قیمت|نرخ|دلار|سکه|طلا(?!یی)|نقره|بیت\s*کوین|داخلی|ایمیل/i.test(t)) return false;
-  return /\b(امروز|فردا|دیروز|پریروز|پس\s*فردا|تاریخ|چندم|چه\s*روزی|روز\s*هفته|هفته\s*چند|شمسی|میلادی|چه\s*تاریخی|امروز\s*چند|تاریخ\s*امروز)\b/i.test(t)
-    || /تاریخ\s*(امروز|فردا|دیروز)?/i.test(t)
-    || /امروز\s*چند(م|شه|ش)?/i.test(t)
-    || /هفته\s*(چندم|چند|چندم\s*سال)/i.test(t);
-};
-
-const formatOneCalendarDay = (date) => {
-  const weekdayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
-  const monthNamesFa = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
-  const monthNamesEn = ["ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"];
-  const toEnDigits = (s) => String(s).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
-  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "numeric", day: "numeric" }).formatToParts(date);
-  const get = (type) => parts.find(p => p.type === type)?.value || "";
-  const pYear = parseInt(toEnDigits(get("year")), 10);
-  const pMonth = parseInt(toEnDigits(get("month")), 10);
-  const pDay = parseInt(toEnDigits(get("day")), 10);
-  const gYear = date.getFullYear();
-  const gMonth = date.getMonth() + 1;
-  const gDay = date.getDate();
-  const weekdayFa = weekdayNamesFa[date.getDay()];
-  const isoWeek = getISOWeekNumber(date);
-  const companyWeek = getContinuousWeekNumber(date);
-  const weekNamesFa = ["اول", "دوم", "سوم", "چهارم"];
-  return {
-    weekdayFa,
-    shamsi: `${pDay} ${monthNamesFa[pMonth - 1]} ${pYear}`,
-    miladi: `${gDay} ${monthNamesEn[gMonth - 1]} ${gYear}`,
-    miladiNum: `${gYear}/${String(gMonth).padStart(2, "0")}/${String(gDay).padStart(2, "0")}`,
-    isoWeek,
-    companyWeekLabel: weekNamesFa[companyWeek - 1],
-  };
-};
-
-const buildDeterministicDateReply = (userText) => {
-  const t = (userText || "").replace(/\u200c/g, " ");
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  let target = new Date(today);
-  let label = "امروز";
-  if (/پس\s*فردا/i.test(t)) { target.setDate(target.getDate() + 2); label = "پس‌فردا"; }
-  else if (/فردا/i.test(t)) { target.setDate(target.getDate() + 1); label = "فردا"; }
-  else if (/پریروز/i.test(t)) { target.setDate(target.getDate() - 2); label = "پریروز"; }
-  else if (/دیروز/i.test(t)) { target.setDate(target.getDate() - 1); label = "دیروز"; }
-  // وگرنه امروز
-
-  const info = formatOneCalendarDay(target);
-  const todayInfo = formatOneCalendarDay(today);
-  const lines = [
-    `${label}: ${info.weekdayFa}`,
-    `شمسی: ${info.shamsi}`,
-    `میلادی: ${info.miladi} (${info.miladiNum})`,
-    `هفتهٔ میلادی (ISO): هفته ${info.isoWeek} سال ${target.getFullYear()}`,
-  ];
-  // اگر فقط «هفته چندم» پرسیده و روز نسبی نگفته، تمرکز روی امروز
-  if (/هفته\s*(چندم|چند)/i.test(t) && !/(فردا|دیروز|پریروز|پس\s*فردا)/i.test(t)) {
-    return [
-      `امروز ${todayInfo.weekdayFa} است.`,
-      `شمسی: ${todayInfo.shamsi}`,
-      `میلادی: ${todayInfo.miladi} (${todayInfo.miladiNum})`,
-      `هفتهٔ میلادی (ISO): هفته ${todayInfo.isoWeek} سال ${today.getFullYear()}`,
-    ].join("\n");
-  }
-  return lines.join("\n");
-};
-
 
 // === انتخاب شیت مرتبط از سندهای چندشیتی (مثل آرشیو چندماهه/چندساله منوی غذا) ===
 // چون سند می‌تونه خیلی بزرگ باشه، به‌جای بریدن از ابتدای متن (که شیت‌های قدیمی رو می‌ده)،
@@ -895,7 +887,6 @@ const isLikelyPersonNameQuery = (text) => {
   if (isPhoneQuery(t) || isEmployeeLookupQuery(t)) return false;
   if (isMenuQuery(t) || isWeatherQuery(t) || isActivationQuery(t)) return false;
   if (isNewsQuery && typeof isNewsQuery === "function" && isNewsQuery(t)) return false;
-  if (typeof isDateQuery === "function" && isDateQuery(t)) return false;
   // «طلایی» (فامیلی) را رد نکن؛ فقط طلا به‌عنوان کالای قیمتی
   if (/دلار|تتر|یورو|پوند|درهم|لیر|حواله|سکه|طلا(?!یی)|نقره|بیت\s*کوین|قیمت|نرخ|اخبار|آب\s*هوا|منو|غذا|کانتین/i.test(t)) return false;
   if (/\d/.test(t)) return false;
@@ -2342,6 +2333,9 @@ export default function ITAssistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [uiLang, setUiLang] = useState(() => { try { return localStorage.getItem("it_assistant_lang") || "fa"; } catch { return "fa"; } });
+  const isEn = uiLang === "en";
+  const toggleUiLang = () => setUiLang((prev) => { const next = prev === "en" ? "fa" : "en"; try { localStorage.setItem("it_assistant_lang", next); } catch {} return next; });
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showQuickButtons, setShowQuickButtons] = useState(true);
@@ -2528,6 +2522,9 @@ export default function ITAssistant() {
         userText && allDocs.length > 0 ? searchDocsWithAI(userText, allDocs) : Promise.resolve("")
       ]);
       let prompt = BASE_KNOWLEDGE + "\n\n=== اطلاعات تاریخ امروز ===\n" + getPersianDateContext();
+      if (isEn) {
+        prompt = "UI language is English. Answer the user in clear English unless they write in Persian.\n\n" + prompt;
+      }
       if (customQA.length > 0) {
         const customSection = customQA.map(item => "سوال: " + item.question + "\nجواب: " + item.answer).join("\n\n");
         prompt += "\n\n=== سوال و جواب‌های اختصاصی شرکت ===\n" + customSection;
@@ -2802,22 +2799,6 @@ export default function ITAssistant() {
       }
     }
 
-    // سوال تاریخ (امروز/فردا/دیروز/هفته چندم…) — جواب قطعی شمسی+میلادی+هفته ISO بدون AI
-    if (isDateQuery(userText)) {
-      try {
-        const reply = buildDeterministicDateReply(userText);
-        if (reply) {
-          setMessages([...newMessages, { role: "assistant", content: reply }]);
-          if (userId) saveMessage(userId, "assistant", reply);
-          logChat("date_lookup", "deterministic");
-          setLoading(false);
-          return;
-        }
-      } catch (e) {
-        // بذار جریان عادی AI ادامه پیدا کنه
-      }
-    }
-
     // اگه سوال درباره منوی غذا بود، مستقیم و بدون AI از روی سند منو محاسبه کن (چون مدل‌ها در تطبیق تاریخ قابل‌اعتماد نیستن)
     if (isMenuQuery(userText)) {
       try {
@@ -2839,6 +2820,17 @@ export default function ITAssistant() {
       } catch (e) {
         // اگه چیزی خطا داد، بذار جریان عادی AI ادامه پیدا کنه (با همون جدول تاریخ توی prompt)
       }
+    }
+
+
+    // تاریخ امروز/فردا/دیروز + هفته میلادی — قطعی بدون AI
+    if (isDateQuery(userText)) {
+      const reply = formatDateReply(userText, uiLang);
+      setMessages([...newMessages, { role: "assistant", content: reply }]);
+      if (userId) saveMessage(userId, "assistant", reply);
+      logChat("date_lookup", "deterministic");
+      setLoading(false);
+      return;
     }
 
     // اگه سوال درباره آب و هوا بود، مستقیم از OpenWeatherMap جواب بده (بدون AI)
@@ -2910,9 +2902,7 @@ export default function ITAssistant() {
       // «طلایی» فامیلی است؛ فقط «طلا» / «طلای ۱۸» کالای قیمتی‌اند
       const isMetalQ = /طلا(?!یی)|سکه|نقره|مثقال|آب\s*شده|آبشده|اونس/i.test(userText);
       const isGold18Q = /طلا(?!یی)|عیار|گرم/i.test(userText) && !/سکه|نقره/i.test(userText);
-      const isCoinQ = /سکه/i.test(userText);
-      const isSilverQ = /نقره/i.test(userText);
-      const isCoinOrSilverQ = isCoinQ || isSilverQ;
+      const isCoinOrSilverQ = /سکه|نقره/i.test(userText);
       // سوال ترکیبی (فلز + ارز/رمزارز) مثل «قیمت طلا سکه دلار بیت‌کوین» → فقط Navasan همه را یکجا دارد
       const isMixedPriceQ = isFxCryptoQ && isMetalQ;
       const isPriceQ = isFxCryptoQ || isMetalQ;
@@ -2920,14 +2910,14 @@ export default function ITAssistant() {
       const isBarePriceOnly = /^\s*(قیمت|نرخ|چند|چنده)(\s+چ[یه])?\s*[؟?!.]*\s*$/i.test(userText);
       let matchedSources = isBarePriceOnly ? [] : matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
-      // Navasan اول وقتی: ارز/رمزارز، طلای ۱۸ خالص، نقره (گرم/تومان قطعی)، یا سوال ترکیبی فلز+ارز
-      // نقره مثل طلای ۱۸ از Navasan با کلید silver (تومان/گرم) می‌آید
-      if ((isFxCryptoQ || isGold18Q || isSilverQ || isMixedPriceQ) && webSources?.length) {
+      // Navasan اول: ارز/رمزارز، طلای ۱۸، نقره، یا ترکیب فلز+ارز (نقره = تومان/گرم از silver)
+      const isSilverQ = /نقره/i.test(userText);
+      if ((isFxCryptoQ || isGold18Q || isMixedPriceQ || isSilverQ) && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
       }
-      // سکه خالص (بدون نقره/دلار/رمزارز) → اولویت ۰ غیر-Navasan اول، بعد Navasan
-      if (isCoinQ && !isSilverQ && !isFxCryptoQ && webSources?.length) {
+      // سکه خالص (بدون دلار/رمزارز و بدون نقره) → اولویت ۰ غیر-Navasan اول، بعد Navasan
+      if (isCoinOrSilverQ && !isFxCryptoQ && !isSilverQ && webSources?.length) {
         const nonNav = webSources.filter(s => !(s.url || "").includes("navasan.tech"));
         const metalMatches = matchWebSource(userText, nonNav.length ? nonNav : webSources);
         if (metalMatches.length > 0) {
@@ -2995,7 +2985,19 @@ export default function ITAssistant() {
           if (res.ok && data.reply) {
             const replyText = cleanText(data.reply);
             // اگه AI گفت پیدا نشد، یا برای طلا عدد غیرواقعی (< ۱ میلیون) داد، منبع بعدی را امتحان کن
-            if ((looksLikeWebSourceNotFound(replyText) || looksLikeSuspiciousGoldPrice(replyText, userText)) && !isLastCandidate) { continue; }
+            if (looksLikeSuspiciousGoldPrice(replyText, userText) && !isLastCandidate) { continue; }
+            if (looksLikeWebSourceNotFound(replyText)) {
+              const recovered = extractRelevantPriceLines(content, userText);
+              if (recovered.length > 0) {
+                const reply = recovered.join("\n") + "\n\n—\nمنبع: " + (matchedSource.label || matchedSource.url) + (matchedSource.url ? " (" + matchedSource.url + ")" : "") + "\nساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
+                setMessages([...newMessages, { role: "assistant", content: reply }]);
+                if (userId) saveMessage(userId, "assistant", reply);
+                logChat("web_source_lines", "deterministic");
+                setLoading(false);
+                return;
+              }
+              if (!isLastCandidate) continue;
+            }
             const reply = `${replyText}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
             setMessages([...newMessages, { role: "assistant", content: reply }]);
             if (userId) saveMessage(userId, "assistant", reply);
@@ -3119,12 +3121,12 @@ export default function ITAssistant() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxHeight: "-webkit-fill-available", background: "#f0f2f5", fontFamily: "'Segoe UI', Tahoma, sans-serif", direction: "rtl", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxHeight: "-webkit-fill-available", background: "#f0f2f5", fontFamily: "'Segoe UI', Tahoma, sans-serif", direction: isEn ? "ltr" : "rtl", overflow: "hidden" }}>
       <div style={{ background: "linear-gradient(135deg, #0078d4, #005a9e)", color: "white", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
         <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖥️</div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17 }}>دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP</div>
-          <div style={{ fontSize: 12, opacity: 0.85 }}>پشتیبانی هوشمند فناوری اطلاعات • آنلاین</div>
+          <div style={{ fontWeight: 700, fontSize: 17 }}>{isEn ? "Nutricia-MMP IT AI Assistant" : "دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP"}</div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>{isEn ? "Smart IT support • Online" : "پشتیبانی هوشمند فناوری اطلاعات • آنلاین"}</div>
         </div>
         <button onClick={async () => {
           setMessages([WELCOME]);
@@ -3132,15 +3134,20 @@ export default function ITAssistant() {
           if (userId) {
             try { await sbFetch(`chat_history?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" }); } catch {}
           }
-        }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>🗑️ پاک کردن چت</button>
-        <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>📢 اطلاعیه‌ها{announcements.length > 0 ? ` (${announcements.length})` : ""}</button>
+        }} style={{ marginRight: "auto", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>{isEn ? "🗑️ Clear chat" : "🗑️ پاک کردن چت"}</button>
+        <button onClick={() => { setShowAnnouncements(true); loadAnnouncements(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "white", padding: "4px 10px", borderRadius: 16, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>{isEn ? `📢 Announcements${announcements.length > 0 ? ` (${announcements.length})` : ""}` : `📢 اطلاعیه‌ها${announcements.length > 0 ? ` (${announcements.length})` : ""}`}</button>
         {/* ۱۸ اوت ۲۰۲۶: نسخه‌ی position:absolute یه فاصله‌ی سفید بالای کادر آبی ایجاد می‌کرد (احتمالاً
             به‌خاطر تداخل با اسکرول/استکینگ کانتینر بیرونی). حالا Login عضو عادی همون ردیف flex
             هدره (نه absolute) — با alignSelf:flex-start فقط بالای همون ردیف (نه وسط‌چین مثل بقیه)
             قرار می‌گیره، پس همیشه داخل کادر آبی، دقیقاً گوشه‌ی بالا-چپش می‌مونه. */}
         <span
+          onClick={toggleUiLang}
+          title={isEn ? "Switch to Persian" : "Switch to English"}
+          style={{ alignSelf: "flex-start", fontSize: 11, color: "rgba(255,255,255,0.95)", background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.35)", borderRadius: 12, padding: "2px 8px", cursor: "pointer", flexShrink: 0, fontWeight: 700 }}
+        >{isEn ? "FA" : "EN"}</span>
+        <span
           onClick={() => setShowAdminLogin(true)}
-          title="ورود مدیر"
+          title={isEn ? "Admin login" : "ورود مدیر"}
           style={{ alignSelf: "flex-start", fontSize: 11, color: "rgba(255,255,255,0.6)", textDecoration: "underline", cursor: "pointer", flexShrink: 0 }}
         >Login</span>
       </div>
@@ -3192,7 +3199,7 @@ export default function ITAssistant() {
       </div>
 
       <div style={{ padding: "12px 16px", background: "#fff", borderTop: "1px solid #e0e0e0", display: "flex", gap: 10, alignItems: "flex-end" }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="سوال IT خود را بنویسید..." rows={1}
+        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder={isEn ? "Type your IT question..." : "سوال IT خود را بنویسید..."} rows={1}
           style={{ flex: 1, padding: "10px 14px", borderRadius: 22, border: "1.5px solid #d0d0d0", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, direction: "rtl", textAlign: "right", lineHeight: 1.5, maxHeight: 120, overflowY: "auto", transition: "border-color 0.2s" }}
           onFocus={e => e.target.style.borderColor = "#0078d4"} onBlur={e => e.target.style.borderColor = "#d0d0d0"} />
         <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>➤</button>
