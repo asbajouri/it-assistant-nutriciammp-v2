@@ -2355,23 +2355,31 @@ function AnnouncementContentBlock({ content }) {
 }
 
 export default function ITAssistant() {
-  const WELCOME = { role: "assistant", content: "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، آفیس، نرم‌افزارها، شبکه یا درخواست‌های IT دارید بپرسید." };
+  const welcomeContent = (lang) =>
+    lang === "en"
+      ? "Hello! I'm the Nutricia-MMP IT AI Assistant 👋\nAsk me anything about Windows, Office, software, network, or IT requests."
+      : "سلام! من دستیار هوش مصنوعی واحد IT شرکت Nutricia-MMP هستم 👋\nهر سوالی درباره ویندوز، آفیس، نرم‌افزارها، شبکه یا درخواست‌های IT دارید بپرسید.";
+  const WELCOME = (lang = "fa") => ({ role: "assistant", content: welcomeContent(lang) });
 
-  const loadMessages = () => {
+  const loadMessages = (lang) => {
     try {
       const saved = sessionStorage.getItem("it_assistant_messages");
-      return saved ? JSON.parse(saved) : [WELCOME];
-    } catch { return [WELCOME]; }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [WELCOME(lang || "fa")];
   };
 
-  const [messages, setMessages] = useState(loadMessages);
+  const [uiLang, setUiLang] = useState(() => { try { return localStorage.getItem("it_assistant_lang") || "fa"; } catch { return "fa"; } });
+  const isEn = uiLang === "en";
+  const toggleUiLang = () => setUiLang((prev) => { const next = prev === "en" ? "fa" : "en"; try { localStorage.setItem("it_assistant_lang", next); } catch {} return next; });
+  const [messages, setMessages] = useState(() => loadMessages(typeof localStorage !== "undefined" ? (localStorage.getItem("it_assistant_lang") || "fa") : "fa"));
   const [userId, setUserId] = useState(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [uiLang, setUiLang] = useState(() => { try { return localStorage.getItem("it_assistant_lang") || "fa"; } catch { return "fa"; } });
-  const isEn = uiLang === "en";
-  const toggleUiLang = () => setUiLang((prev) => { const next = prev === "en" ? "fa" : "en"; try { localStorage.setItem("it_assistant_lang", next); } catch {} return next; });
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showQuickButtons, setShowQuickButtons] = useState(true);
@@ -2384,6 +2392,22 @@ export default function ITAssistant() {
   const stoppedByUserRef = useRef(false); // تا پیام «متوقف شد» دوبار (هم از دکمه، هم از catch) اضافه نشه
 
   useEffect(() => { loadButtons(); loadAnnouncements(); loadForceLocalAI(); loadProviderOrder(); }, []);
+  // با تعویض FA/EN متن خوش‌آمدگویی هم هم‌زبان شود (اگر هنوز فقط پیام خوش‌آمد است)
+  useEffect(() => {
+    setMessages((prev) => {
+      if (!prev || prev.length === 0) return [WELCOME(uiLang)];
+      if (prev.length === 1 && prev[0]?.role === "assistant") {
+        return [WELCOME(uiLang)];
+      }
+      // اگر اولین پیام همان خوش‌آمد قدیمی است، فقط همان را عوض کن
+      const first = prev[0];
+      if (first?.role === "assistant" && /دستیار هوش مصنوعی|IT AI Assistant/i.test(first.content || "")) {
+        return [WELCOME(uiLang), ...prev.slice(1)];
+      }
+      return prev;
+    });
+  }, [uiLang]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     try { sessionStorage.setItem("it_assistant_messages", JSON.stringify(messages)); } catch {}
@@ -2721,7 +2745,7 @@ export default function ITAssistant() {
     if (!abortControllerRef.current || stoppedByUserRef.current) return;
     stoppedByUserRef.current = true;
     setLoading(false);
-    setMessages(prev => [...prev, { role: "assistant", content: "⏹️ درخواست شما متوقف شد." }]);
+    setMessages(prev => [...prev, { role: "assistant", content: isEn ? "⏹️ Request stopped." : "⏹️ درخواست شما متوقف شد." }]);
     abortControllerRef.current.abort();
   };
 
@@ -3162,7 +3186,7 @@ export default function ITAssistant() {
       // (نه اینجا، که ممکنه دیر برسه) پیام رو اضافه کرده — دوباره اضافه نکن. برای خطاهای واقعی
       // (نه لغو کاربر)، همون پیام قبلی «خطا در اتصال» نشون داده می‌شه.
       if (err.name !== "AbortError") {
-        setMessages([...newMessages, { role: "assistant", content: `⚠️ خطا در اتصال: ${err.message}` }]);
+        setMessages([...newMessages, { role: "assistant", content: isEn ? `⚠️ Connection error: ${err.message}` : `⚠️ خطا در اتصال: ${err.message}` }]);
       }
     } finally { setLoading(false); }
   };
@@ -3196,7 +3220,7 @@ export default function ITAssistant() {
           <div style={{ fontSize: 12, opacity: 0.85 }}>{isEn ? "Smart IT support • Online" : "پشتیبانی هوشمند فناوری اطلاعات • آنلاین"}</div>
         </div>
         <button onClick={async () => {
-          setMessages([WELCOME]);
+          setMessages([WELCOME(uiLang)]);
           try { sessionStorage.removeItem("it_assistant_messages"); } catch {}
           if (userId) {
             try { await sbFetch(`chat_history?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" }); } catch {}
