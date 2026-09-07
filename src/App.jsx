@@ -249,10 +249,11 @@ const extractRelevantPriceLines = (content, query) => {
 };
 
 const formatScrapReply = (lines, src, fetchedAt) => {
+  const nl = "\n";
   const body = lines.length
-    ? ("قیمت ضایعات آهن (از صفحه):\n" + lines.map((l) => "- " + l).join("\n"))
+    ? ("قیمت ضایعات آهن (از صفحه):" + nl + lines.map((l) => "- " + l).join(nl))
     : "";
-  const foot = "\n\n—\nمنبع: " + (src.label || src.url) + (src.url ? " (" + src.url + ")" : "") + "\nساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
+  const foot = nl + nl + "—" + nl + "منبع: " + (src.label || src.url) + (src.url ? " (" + src.url + ")" : "") + nl + "ساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
   return body + foot;
 };
 
@@ -3035,7 +3036,7 @@ export default function ITAssistant() {
         }
         // جواب قطعی Navasan — بدون AI
         if (deterministicReply) {
-          const reply = `${deterministicReply}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+          const reply = `${deterministicReply}\n\n—\n${isEn ? "Source" : "منبع"}: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
           setMessages([...newMessages, { role: "assistant", content: reply }]);
           if (userId) saveMessage(userId, "assistant", reply);
           logChat("web_source_deterministic:" + matchedSource.label, "deterministic");
@@ -3080,7 +3081,7 @@ export default function ITAssistant() {
             if (looksLikeWebSourceNotFound(replyText)) {
               const recovered = extractRelevantPriceLines(content, userText);
               if (recovered.length > 0) {
-                const reply = recovered.join("\n") + "\n\n—\nمنبع: " + (matchedSource.label || matchedSource.url) + (matchedSource.url ? " (" + matchedSource.url + ")" : "") + "\nساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
+                const reply = recovered.join("\n") + "\n\n—\n" + (isEn ? "Source" : "منبع") + ": " + (matchedSource.label || matchedSource.url) + (matchedSource.url ? " (" + matchedSource.url + ")" : "") + "\nساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
                 setMessages([...newMessages, { role: "assistant", content: reply }]);
                 if (userId) saveMessage(userId, "assistant", reply);
                 logChat("web_source_lines", "deterministic");
@@ -3089,7 +3090,7 @@ export default function ITAssistant() {
               }
               if (!isLastCandidate) continue;
             }
-            const reply = `${replyText}\n\n—\nمنبع: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
+            const reply = `${replyText}\n\n—\n${isEn ? "Source" : "منبع"}: ${matchedSource.label} (${matchedSource.url})\nساعت دریافت اطلاعات: ${formatFetchTime(fetchedAt)}`;
             setMessages([...newMessages, { role: "assistant", content: reply }]);
             if (userId) saveMessage(userId, "assistant", reply);
             logChat("web_source:" + matchedSource.label, "ai");
@@ -3177,7 +3178,7 @@ export default function ITAssistant() {
       const reply = cleanText(data.reply);
       const outOfScope = isOutOfScopeReply(reply);
       // منبع فقط زیر جواب‌های واقعی AI نشون داده میشه، نه زیر پیام امتناع (که خودش گویاست)
-      const replyWithSource = outOfScope ? reply : `${reply}\n\n—\nمنبع: ${sourceLabel(data.source)}`;
+      const replyWithSource = outOfScope ? reply : `${reply}\n\n—\n${isEn ? "Source" : "منبع"}: ${sourceLabel(data.source)}`;
       setMessages([...newMessages, { role: "assistant", content: replyWithSource }]);
       if (userId) saveMessage(userId, "assistant", replyWithSource);
       logChat(outOfScope ? "out_of_scope" : (data.source || "ai"), "ai");
@@ -3266,15 +3267,27 @@ export default function ITAssistant() {
       )}
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch", touchAction: "pan-y", padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-start" : "flex-end", alignItems: "flex-end", gap: 8 }}>
+        {messages.map((msg, i) => {
+          const isUser = msg.role === "user";
+          // EN: کاربر راست / دستیار چپ — FA (rtl): همان رفتار قبلی با direction والد
+          const rowJustify = isEn
+            ? (isUser ? "flex-end" : "flex-start")
+            : (isUser ? "flex-start" : "flex-end");
+          const bubbleRadius = isEn
+            ? (isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px")
+            : (isUser ? "18px 18px 18px 4px" : "18px 18px 4px 18px");
+          const textDir = isEn || isLatinText(msg.content) ? "ltr" : "rtl";
+          const textAlign = isEn || isLatinText(msg.content) ? "left" : "right";
+          return (
+          <div key={i} style={{ display: "flex", justifyContent: rowJustify, alignItems: "flex-end", gap: 8, width: "100%" }}>
             {msg.role === "assistant" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#0078d4", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🖥️</div>}
-            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: msg.role === "user" ? "18px 18px 18px 4px" : "18px 18px 4px 18px", background: msg.role === "user" ? "#0078d4" : "#ffffff", color: msg.role === "user" ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: isLatinText(msg.content) ? "ltr" : "rtl", textAlign: isLatinText(msg.content) ? "left" : "right" }}>{msg.role === "user" ? msg.content : renderMessage(msg.content)}</div>
-            {msg.role === "user" && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>}
+            <div style={{ maxWidth: "72%", padding: "10px 14px", borderRadius: bubbleRadius, background: isUser ? "#0078d4" : "#ffffff", color: isUser ? "white" : "#1a1a1a", boxShadow: "0 1px 4px rgba(0,0,0,0.1)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", direction: textDir, textAlign: textAlign }}>{isUser ? msg.content : renderMessage(msg.content)}</div>
+            {isUser && <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#6c757d", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>}
           </div>
-        ))}
+          );
+        })}
         {loading && (
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: isEn ? "flex-start" : "flex-end", alignItems: "center", gap: 8 }}>
             <button
               onClick={stopGeneration}
               title="توقف پاسخ"
@@ -3289,11 +3302,11 @@ export default function ITAssistant() {
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ padding: "12px 16px", background: "#fff", borderTop: "1px solid #e0e0e0", display: "flex", gap: 10, alignItems: "flex-end" }}>
+      <div style={{ padding: "12px 16px", background: "#fff", borderTop: "1px solid #e0e0e0", display: "flex", gap: 10, alignItems: "flex-end", direction: isEn ? "ltr" : "rtl" }}>
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder={isEn ? "Type your IT question..." : "سوال IT خود را بنویسید..."} rows={1}
-          style={{ flex: 1, padding: "10px 14px", borderRadius: 22, border: "1.5px solid #d0d0d0", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, direction: "rtl", textAlign: "right", lineHeight: 1.5, maxHeight: 120, overflowY: "auto", transition: "border-color 0.2s" }}
+          style={{ flex: 1, padding: "10px 14px", borderRadius: 22, border: "1.5px solid #d0d0d0", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, direction: isEn ? "ltr" : "rtl", textAlign: isEn ? "left" : "right", lineHeight: 1.5, maxHeight: 120, overflowY: "auto", transition: "border-color 0.2s", unicodeBidi: "plaintext" }}
           onFocus={e => e.target.style.borderColor = "#0078d4"} onBlur={e => e.target.style.borderColor = "#d0d0d0"} />
-        <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>➤</button>
+        <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ width: 44, height: 44, borderRadius: "50%", background: input.trim() && !loading ? "#0078d4" : "#ccc", border: "none", cursor: input.trim() && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0, transform: isEn ? "scaleX(-1)" : "none" }}>➤</button>
       </div>
 
       {showAdminLogin && (
