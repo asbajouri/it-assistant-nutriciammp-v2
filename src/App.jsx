@@ -159,8 +159,21 @@ const matchWebSource = (userText, sources) => {
   // (چون فقط Navasan همه را یکجا و structured دارد). سکه/نقره خالص از اولویت پنل می‌آید.
   const hasFxCrypto = /دلار|تتر|یورو|پوند|درهم|بیت\s*کوین|بیتکوین|bitcoin|btc|اتریوم|رمزارز/i.test(userText);
   const hasMetal = /طلا(?!یی)|سکه|نقره|مثقال/i.test(userText);
-  const preferNavasan = hasFxCrypto; // حتی اگر فلز هم باشد (سوال ترکیبی)
+  const isScrapQ = /ضایعات|قراضه|آهن\s*قراضه|iron\s*scrap/i.test(userText);
+  const preferNavasan = hasFxCrypto && !isScrapQ; // ضایعات هرگز به Navasan نرود
+  const scrapBoost = (src) => {
+    const blob = ((src.url || "") + " " + (src.label || "") + " " + (src.keywords || "")).toLowerCase();
+    if (/iranzayeat|ضایعات/.test(blob)) return 2;
+    if (/tgju.*silver|silver_999|نقره/.test(blob) && isScrapQ) return -5;
+    if (/navasan/.test(blob) && isScrapQ) return -3;
+    return 0;
+  };
   candidates.sort((a, b) => {
+    // برای ضایعات: iranzayeat اول، منابع نقره/navasan آخر
+    if (isScrapQ) {
+      const ba = scrapBoost(a.src), bb = scrapBoost(b.src);
+      if (ba !== bb) return bb - ba;
+    }
     const pa = a.src.priority ?? 0, pb = b.src.priority ?? 0;
     if (pa !== pb) return pa - pb;
     if (preferNavasan) {
@@ -170,6 +183,15 @@ const matchWebSource = (userText, sources) => {
     }
     return b.score - a.score;
   });
+  // ضایعات: منابع نامرتبط نقره را حذف کن تا به tgju/silver نرود
+  if (isScrapQ) {
+    const filtered = candidates.filter((c) => scrapBoost(c.src) >= 0);
+    if (filtered.length) {
+      // replace candidates list content
+      candidates.length = 0;
+      candidates.push(...filtered);
+    }
+  }
   // ۲۲/۲۳ اوت ۲۰۲۶: کل لیست مرتب‌شده برمی‌گرده (نه فقط بهترین یکی) — تا اگه بهترین منبع
   // (اولویت ۰) فچ/جوابش شکست خورد یا AI گفت «پیدا نشد»، فراخوان بتونه سریع بره سراغ اولویت
   // بعدی، به‌جای نشون‌دادن جواب ناقص یا خطا.
@@ -2910,8 +2932,27 @@ export default function ITAssistant() {
       const isBarePriceOnly = /^\s*(قیمت|نرخ|چند|چنده)(\s+چ[یه])?\s*[؟?!.]*\s*$/i.test(userText);
       let matchedSources = isBarePriceOnly ? [] : matchWebSource(userText, webSources);
       const byId = (a, b) => (a.id ?? a.url) === (b.id ?? b.url);
+      // ضایعات آهن → فقط/اول iranzayeat.com (دقیق‌تر از tgju نقره)
+      const isScrapQ = /ضایعات|قراضه|آهن\s*قراضه|iron\s*scrap/i.test(userText);
+      if (isScrapQ && webSources?.length) {
+        const scrapSources = webSources.filter((s) =>
+          /iranzayeat|ضایعات/i.test((s.url || "") + " " + (s.label || "") + " " + (s.keywords || ""))
+        );
+        if (scrapSources.length) {
+          matchedSources = [
+            ...scrapSources,
+            ...matchedSources.filter((s) => !scrapSources.some((x) => byId(x, s))),
+          ];
+        }
+        // حذف منابع نقره/tgju silver از لیست ضایعات
+        matchedSources = matchedSources.filter((s) => {
+          const blob = ((s.url || "") + " " + (s.label || "")).toLowerCase();
+          if (/silver|نقره/.test(blob) && !/ضایعات|iranzayeat/.test(blob)) return false;
+          return true;
+        });
+      }
       // Navasan اول: ارز/رمزارز، طلای ۱۸، نقره، یا ترکیب فلز+ارز (نقره = تومان/گرم از silver)
-      const isSilverQ = /نقره/i.test(userText);
+      const isSilverQ = /نقره/i.test(userText) && !isScrapQ;
       if ((isFxCryptoQ || isGold18Q || isMixedPriceQ || isSilverQ) && webSources?.length) {
         const navasan = webSources.find(s => (s.url || "").includes("navasan.tech"));
         if (navasan) matchedSources = [navasan, ...matchedSources.filter(s => !byId(s, navasan))];
