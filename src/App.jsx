@@ -214,18 +214,24 @@ const isWebSourceStale = (src) => {
 // وقتی AI می‌گوید «پیدا نشد» ولی متن صفحه عدد/ردیف مرتبط دارد (مثلاً ضایعات)، همان خطوط را نشان بده
 const extractRelevantPriceLines = (content, query) => {
   if (!content) return [];
-  const qWords = normalizeText(query || "")
+  const q = query || "";
+  const isScrap = /ضایعات|قراضه|آهن\s*قراضه/i.test(q);
+  const qWords = normalizeText(q)
     .split(/\s+/)
     .filter((w) => w.length >= 2 && !WEB_SOURCE_STOPWORDS.has(w));
-  if (!qWords.length) return [];
   const lines = String(content).split(/\n/).map((l) => l.trim()).filter((l) => l.length >= 4);
   const scored = [];
   for (const ln of lines) {
-    if (!/\d/.test(ln)) continue;
+    if (!/\d{2,}/.test(ln.replace(/[,،]/g, ""))) continue;
     const n = normalizeText(ln);
     let score = 0;
     for (const w of qWords) {
-      if (n.includes(w) || wordBoundaryIncludes(n, w)) score += 1;
+      if (n.includes(w) || wordBoundaryIncludes(n, w)) score += 2;
+    }
+    // ضایعات: ردیف‌های آهن/کیلو/تومان/درجه حتی بدون کلمهٔ «ضایعات» در همان خط
+    if (isScrap) {
+      if (/آهن|ضایعات|قراضه|کیلو|تومان|درجه|سوپر|ویژه|عمده|بار/.test(n)) score += 3;
+      if (/تومان|ریال|کیلو/.test(n) && /\d/.test(ln)) score += 1;
     }
     if (score > 0) scored.push({ score, ln: ln.slice(0, 220) });
   }
@@ -237,9 +243,17 @@ const extractRelevantPriceLines = (content, query) => {
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(ln);
-    if (out.length >= 12) break;
+    if (out.length >= 15) break;
   }
   return out;
+};
+
+const formatScrapReply = (lines, src, fetchedAt) => {
+  const body = lines.length
+    ? ("قیمت ضایعات آهن (از صفحه):\n" + lines.map((l) => "- " + l).join("\n"))
+    : "";
+  const foot = "\n\n—\nمنبع: " + (src.label || src.url) + (src.url ? " (" + src.url + ")" : "") + "\nساعت دریافت اطلاعات: " + formatFetchTime(fetchedAt);
+  return body + foot;
 };
 
 const looksLikeWebSourceNotFound = (replyText) =>
@@ -2974,13 +2988,25 @@ export default function ITAssistant() {
         let content = matchedSource.last_content;
         let fetchedAt = matchedSource.last_fetched_at;
         let deterministicReply = null;
-        // همیشه fresh برای قیمت
-        if (isWebSourceStale(matchedSource) || isPriceQ) {
+        // همیشه fresh برای قیمت و ضایعات (کش خالی/ناقص باعث «پیدا نشد» تکراری می‌شد)
+        if (isWebSourceStale(matchedSource) || isPriceQ || isScrapQ) {
           const fresh = await fetchAndCacheWebSource(matchedSource, userText, abortController.signal);
-          if (fresh) {
+          if (fresh && (fresh.content || "").trim()) {
             content = fresh.content;
             fetchedAt = fresh.fetched_at;
             deterministicReply = fresh.deterministic_reply || null;
+          }
+        }
+        // ضایعات: اول از خود متن صفحه ردیف قیمت را دربیاور — وابسته به AI نباش
+        if (isScrapQ && (content || "").trim()) {
+          const scrapLines = extractRelevantPriceLines(content, userText);
+          if (scrapLines.length >= 1) {
+            const reply = formatScrapReply(scrapLines, matchedSource, fetchedAt);
+            setMessages([...newMessages, { role: "assistant", content: reply }]);
+            if (userId) saveMessage(userId, "assistant", reply);
+            logChat("scrap_lines", "deterministic");
+            setLoading(false);
+            return;
           }
         }
         // جواب قطعی Navasan — بدون AI
